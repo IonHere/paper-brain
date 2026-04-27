@@ -78,10 +78,9 @@ GROQ_API_KEY = os.environ.get('GROQ_API_KEY', '')
 GROQ_MODEL = os.environ.get('HF_TEXT_MODEL', 'llama-3.1-8b-instant')
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 
-# HuggingFace still used for vision model
-HF_TOKEN = os.environ.get('HF_TOKEN', '')
-HF_VISION_MODEL = os.environ.get('HF_VISION_MODEL', 'llava-hf/llava-1.5-7b-hf')
-HF_API_BASE = "https://api-inference.huggingface.co/models"
+# Gemini Vision API
+GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
+GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
 
 app = FastAPI()
 api_router = APIRouter(prefix="/api")
@@ -145,27 +144,32 @@ async def call_text_model(prompt: str) -> str:
         except httpx.TimeoutException:
             raise HTTPException(status_code=504, detail="Groq model timed out")
 
-async def analyze_image_with_vision_model(image_base64: str) -> str:
-    """Analyze image using HuggingFace vision model"""
-    url = f"{HF_API_BASE}/{HF_VISION_MODEL}"
-    headers = {"Authorization": f"Bearer {HF_TOKEN}"}
+async def analyze_image_with_vision_model(image_base64: str, page: int = 0) -> dict:
+    """Analyze image using Gemini Vision - reads diagrams, charts, handwriting"""
     try:
-        image_bytes = base64.b64decode(image_base64)
-        async with httpx.AsyncClient(timeout=120.0) as client:
+        payload = {
+            "contents": [{
+                "parts": [
+                    {"text": "Analyze this image from a PDF document. If it contains handwritten text, extract ALL the text exactly. If it contains a diagram, chart, or figure, describe it in detail including labels, relationships, and key concepts. If it contains printed text, extract it. Be thorough and specific."},
+                    {"inline_data": {"mime_type": "image/png", "data": image_base64}}
+                ]
+            }],
+            "generationConfig": {"maxOutputTokens": 1024, "temperature": 0.1}
+        }
+        async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(
-                url,
-                headers={**headers, "Content-Type": "image/png"},
-                content=image_bytes
+                f"{GEMINI_API_URL}?key={GEMINI_API_KEY}",
+                json=payload
             )
             if response.status_code == 200:
                 data = response.json()
-                if isinstance(data, list) and len(data) > 0:
-                    return data[0].get("generated_text", "Image analyzed")
-                return str(data)
-            return "Image analysis unavailable"
+                text = data["candidates"][0]["content"]["parts"][0]["text"]
+                return {"page": page, "description": text, "type": "gemini_vision"}
+            logging.error(f"Gemini Vision error: {response.status_code} {response.text}")
+            return {"page": page, "description": "Image analysis failed", "type": "error"}
     except Exception as e:
-        logging.error(f"Vision model error: {e}")
-        return "Image analysis failed"
+        logging.error(f"Vision error: {e}")
+        return {"page": page, "description": "Image analysis unavailable", "type": "error"}
 
 # ─────────────────────────────────────────────
 # Intent detection & prompt builder (unchanged)
@@ -332,9 +336,9 @@ async def process_text(request: ProcessRequest):
     if request.images:
         for img in request.images[:5]:
             try:
-                desc = await analyze_image_with_vision_model(img["data"])
-                if desc:
-                    image_descriptions.append(desc)
+                result = await analyze_image_with_vision_model(img["data"], img.get("page", 0))
+                if result and result.get("description"):
+                    image_descriptions.append(result["description"])
             except Exception as e:
                 logging.error(f"Image error: {e}")
 
@@ -412,9 +416,9 @@ async def regenerate_response(request: RegenerateRequest):
     if request.images:
         for img in request.images[:5]:
             try:
-                desc = await analyze_image_with_vision_model(img["data"])
-                if desc:
-                    image_descriptions.append(desc)
+                result = await analyze_image_with_vision_model(img["data"], img.get("page", 0))
+                if result and result.get("description"):
+                    image_descriptions.append(result["description"])
             except Exception as e:
                 logging.error(f"Image error: {e}")
 

@@ -13,18 +13,66 @@ from pathlib import Path
 from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime, timezone
-import asyncpg
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
 # ─────────────────────────────────────────────
-# Supabase / Postgres connection
+# Supabase REST API (works on Vercel serverless)
 # ─────────────────────────────────────────────
-DATABASE_URL = os.environ.get('DATABASE_URL')  # postgresql://postgres.xxx:password@aws-1-ap-south-1.pooler.supabase.com:5432/postgres
+SUPABASE_URL = os.environ.get('SUPABASE_URL', '')
+SUPABASE_KEY = os.environ.get('SUPABASE_SECRET_KEY', '')
+
+def supabase_headers():
+    return {
+        "apikey": SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "Content-Type": "application/json",
+        "Prefer": "return=representation"
+    }
+
+async def sb_select(table: str, filters: dict = None, order: str = None, limit: int = None):
+    url = f"{SUPABASE_URL}/rest/v1/{table}?select=*"
+    if filters:
+        for k, v in filters.items():
+            url += f"&{k}=eq.{v}"
+    if order:
+        url += f"&order={order}.desc"
+    if limit:
+        url += f"&limit={limit}"
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        r = await client.get(url, headers=supabase_headers())
+        return r.json() if r.status_code == 200 else []
+
+async def sb_insert(table: str, data: dict):
+    url = f"{SUPABASE_URL}/rest/v1/{table}"
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        r = await client.post(url, headers=supabase_headers(), json=data)
+        return r.json()
+
+async def sb_update(table: str, match: dict, data: dict):
+    url = f"{SUPABASE_URL}/rest/v1/{table}?"
+    url += "&".join([f"{k}=eq.{v}" for k, v in match.items()])
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        r = await client.patch(url, headers=supabase_headers(), json=data)
+        return r.json()
+
+async def sb_delete(table: str, match: dict):
+    url = f"{SUPABASE_URL}/rest/v1/{table}?"
+    url += "&".join([f"{k}=eq.{v}" for k, v in match.items()])
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        r = await client.delete(url, headers=supabase_headers())
+        return r.status_code
+
+async def sb_upsert(table: str, data: dict, on_conflict: str):
+    url = f"{SUPABASE_URL}/rest/v1/{table}"
+    headers = {**supabase_headers(), "Prefer": f"resolution=merge-duplicates,return=representation"}
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        r = await client.post(url, headers=headers, json=data)
+        return r.json()
 
 # ─────────────────────────────────────────────
-# Groq API (replaces HuggingFace)
+# Groq API
 # ─────────────────────────────────────────────
 GROQ_API_KEY = os.environ.get('GROQ_API_KEY', '')
 GROQ_MODEL = os.environ.get('HF_TEXT_MODEL', 'llama-3.1-8b-instant')
@@ -37,33 +85,6 @@ HF_API_BASE = "https://api-inference.huggingface.co/models"
 
 app = FastAPI()
 api_router = APIRouter(prefix="/api")
-
-# ─────────────────────────────────────────────
-# DB helpers  (asyncpg – no ORM needed)
-# ─────────────────────────────────────────────
-async def get_db():
-    return await asyncpg.connect(DATABASE_URL)
-
-async def db_execute(query: str, *args):
-    conn = await get_db()
-    try:
-        await conn.execute(query, *args)
-    finally:
-        await conn.close()
-
-async def db_fetch(query: str, *args):
-    conn = await get_db()
-    try:
-        return await conn.fetch(query, *args)
-    finally:
-        await conn.close()
-
-async def db_fetchrow(query: str, *args):
-    conn = await get_db()
-    try:
-        return await conn.fetchrow(query, *args)
-    finally:
-        await conn.close()
 
 # ─────────────────────────────────────────────
 # Pydantic models
@@ -350,14 +371,14 @@ async def process_text(request: ProcessRequest):
     timestamp = datetime.now(timezone.utc).isoformat()
     source_preview = request.texts[0]["text"][:200] + "..."
 
-    await db_execute(
-        """INSERT INTO history (id, mode, result, timestamp, source_preview, full_text, filename, query, question, answer, image_count)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)""",
-        doc_id, mode, str(results), timestamp, source_preview,
-        request.texts[0]["text"][:10000],
-        request.texts[0].get("filename", ""),
-        request.query, request.question, request.answer, len(image_descriptions)
-    )
+    await sb_insert("history", {
+        "id": doc_id, "mode": mode, "result": str(results),
+        "timestamp": timestamp, "source_preview": source_preview,
+        "full_text": request.texts[0]["text"][:10000],
+        "filename": request.texts[0].get("filename", ""),
+        "query": request.query, "question": request.question,
+        "answer": request.answer, "image_count": len(image_descriptions)
+    })
 
     return {"id": doc_id, "mode": mode, "results": results,
             "timestamp": timestamp, "source_preview": source_preview,
@@ -365,10 +386,8 @@ async def process_text(request: ProcessRequest):
 
 @api_router.post("/feedback")
 async def save_feedback(request: FeedbackRequest):
-    await db_execute(
-        "UPDATE history SET feedback=$1, feedback_comment=$2 WHERE id=$3",
-        request.feedback, request.comment, request.result_id
-    )
+    await sb_update("history", {"id": request.result_id},
+                    {"feedback": request.feedback, "feedback_comment": request.comment})
     return {"message": "Feedback saved"}
 
 @api_router.get("/preferences")
@@ -420,58 +439,57 @@ Improved response: [/INST]"""
     doc_id = str(uuid.uuid4())
     timestamp = datetime.now(timezone.utc).isoformat()
 
-    await db_execute(
-        """INSERT INTO history (id, mode, result, timestamp, source_preview, full_text, filename, query, is_regenerated)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)""",
-        doc_id, mode, result, timestamp, truncated[:200], truncated,
-        request.texts[0].get("filename", "") if request.texts else "",
-        request.query, True
-    )
+    await sb_insert("history", {
+        "id": doc_id, "mode": mode, "result": result,
+        "timestamp": timestamp, "source_preview": truncated[:200],
+        "full_text": truncated,
+        "filename": request.texts[0].get("filename", "") if request.texts else "",
+        "query": request.query, "is_regenerated": True
+    })
 
     return {"id": doc_id, "mode": mode, "result": result,
             "timestamp": timestamp, "is_regenerated": True}
 
 @api_router.get("/history")
 async def get_history():
-    rows = await db_fetch("SELECT * FROM history ORDER BY timestamp DESC LIMIT 50")
-    return [dict(r) for r in rows]
+    rows = await sb_select("history", order="timestamp", limit=50)
+    return rows if isinstance(rows, list) else []
 
 @api_router.delete("/history/{item_id}")
 async def delete_history_item(item_id: str):
-    await db_execute("DELETE FROM history WHERE id=$1", item_id)
+    await sb_delete("history", {"id": item_id})
     return {"message": "Item deleted"}
 
 @api_router.delete("/history")
 async def clear_history():
-    await db_execute("DELETE FROM history")
+    # Delete all — Supabase requires a filter, use neq on a field that always has value
+    await sb_delete("history", {"id": "neq.null"})
     return {"message": "History cleared"}
 
 @api_router.post("/sessions")
 async def save_session(request: SessionRequest):
-    await db_execute(
-        """INSERT INTO sessions (session_id, label, date, full_text, filename)
-           VALUES ($1,$2,$3,$4,$5)
-           ON CONFLICT (session_id) DO UPDATE
-           SET label=$2, date=$3, full_text=$4, filename=$5""",
-        request.id, request.label, request.date, request.full_text, request.filename
-    )
+    await sb_upsert("sessions", {
+        "session_id": request.id, "label": request.label,
+        "date": request.date, "full_text": request.full_text,
+        "filename": request.filename
+    }, on_conflict="session_id")
     return {"message": "Session saved"}
 
 @api_router.get("/sessions")
 async def get_sessions():
-    rows = await db_fetch("SELECT * FROM sessions ORDER BY date DESC LIMIT 100")
-    return [dict(r) for r in rows]
+    rows = await sb_select("sessions", order="date", limit=100)
+    return rows if isinstance(rows, list) else []
 
 @api_router.get("/sessions/{session_id}")
 async def get_session_details(session_id: str):
-    row = await db_fetchrow("SELECT * FROM sessions WHERE session_id=$1", session_id)
-    if not row:
+    rows = await sb_select("sessions", filters={"session_id": session_id})
+    if not rows:
         raise HTTPException(status_code=404, detail="Session not found")
-    return dict(row)
+    return rows[0]
 
 @api_router.delete("/sessions/{session_id}")
 async def delete_session(session_id: str):
-    await db_execute("DELETE FROM sessions WHERE session_id=$1", session_id)
+    await sb_delete("sessions", {"session_id": session_id})
     return {"message": "Session deleted"}
 
 # ─────────────────────────────────────────────

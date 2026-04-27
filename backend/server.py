@@ -24,10 +24,14 @@ load_dotenv(ROOT_DIR / '.env')
 DATABASE_URL = os.environ.get('DATABASE_URL')  # postgresql://postgres.xxx:password@aws-1-ap-south-1.pooler.supabase.com:5432/postgres
 
 # ─────────────────────────────────────────────
-# HuggingFace Inference API  (replaces Ollama)
+# Groq API (replaces HuggingFace)
 # ─────────────────────────────────────────────
+GROQ_API_KEY = os.environ.get('GROQ_API_KEY', '')
+GROQ_MODEL = os.environ.get('HF_TEXT_MODEL', 'llama-3.1-8b-instant')
+GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
+
+# HuggingFace still used for vision model
 HF_TOKEN = os.environ.get('HF_TOKEN', '')
-HF_TEXT_MODEL = os.environ.get('HF_TEXT_MODEL', 'mistralai/Mistral-7B-Instruct-v0.2')   # or your fine-tuned model
 HF_VISION_MODEL = os.environ.get('HF_VISION_MODEL', 'llava-hf/llava-1.5-7b-hf')
 HF_API_BASE = "https://api-inference.huggingface.co/models"
 
@@ -99,36 +103,26 @@ class SessionRequest(BaseModel):
 # AI model calls  (HuggingFace)
 # ─────────────────────────────────────────────
 async def call_text_model(prompt: str) -> str:
-    """Call HuggingFace text model (Mistral or your fine-tuned model)"""
-    url = f"{HF_API_BASE}/{HF_TEXT_MODEL}"
-    headers = {"Authorization": f"Bearer {HF_TOKEN}"}
-    payload = {
-        "inputs": prompt,
-        "parameters": {
-            "max_new_tokens": 1024,
-            "temperature": 0.7,
-            "return_full_text": False
-        }
+    """Call Groq API (fast, free, supports Llama & Mistral)"""
+    headers = {
+        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Content-Type": "application/json"
     }
-    async with httpx.AsyncClient(timeout=120.0) as client:
+    payload = {
+        "model": GROQ_MODEL,
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": 1024,
+        "temperature": 0.7
+    }
+    async with httpx.AsyncClient(timeout=60.0) as client:
         try:
-            response = await client.post(url, headers=headers, json=payload)
+            response = await client.post(GROQ_API_URL, headers=headers, json=payload)
             if response.status_code == 200:
                 data = response.json()
-                if isinstance(data, list) and len(data) > 0:
-                    return data[0].get("generated_text", "No response generated")
-                return str(data)
-            elif response.status_code == 503:
-                # Model is loading — wait and retry once
-                import asyncio
-                await asyncio.sleep(20)
-                response = await client.post(url, headers=headers, json=payload)
-                data = response.json()
-                if isinstance(data, list):
-                    return data[0].get("generated_text", "No response generated")
-            raise HTTPException(status_code=502, detail=f"HuggingFace API error: {response.status_code}")
+                return data["choices"][0]["message"]["content"]
+            raise HTTPException(status_code=502, detail=f"Groq API error: {response.status_code} {response.text}")
         except httpx.TimeoutException:
-            raise HTTPException(status_code=504, detail="HuggingFace model timed out")
+            raise HTTPException(status_code=504, detail="Groq model timed out")
 
 async def analyze_image_with_vision_model(image_base64: str) -> str:
     """Analyze image using HuggingFace vision model"""

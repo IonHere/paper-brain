@@ -77,9 +77,11 @@ export default function SearchBox({ sourceText, multiSources, onResult, disabled
         question: mode === "evaluate" ? evalQuestion : undefined,
         answer: mode === "evaluate" ? evalAnswer : undefined,
         history: buildHistory(),
+        images: multiSources?.flatMap(s => s.images || []) || [],
       };
 
       const res = await axios.post(`${API}/process`, payload);
+      const analyzedImages = res.data.analyzed_images || [];
 
       if (res.data.results && res.data.results.length > 1) {
         res.data.results.forEach((r) => {
@@ -94,6 +96,7 @@ export default function SearchBox({ sourceText, multiSources, onResult, disabled
             inputQuestion: evalQuestion,
             inputAnswer: evalAnswer,
             images: multiSources?.find(s => s.filename === r.filename)?.images || [],
+            analyzed_images: analyzedImages,
           });
         });
       } else {
@@ -108,6 +111,7 @@ export default function SearchBox({ sourceText, multiSources, onResult, disabled
           inputQuestion: evalQuestion,
           inputAnswer: evalAnswer,
           images: multiSources?.find(s => s.filename === r.filename)?.images || [],
+          analyzed_images: analyzedImages,
         });
       }
 
@@ -237,7 +241,7 @@ export default function SearchBox({ sourceText, multiSources, onResult, disabled
           <div className="flex items-center gap-2">
             {isLoading && (
               <span className="text-xs text-indigo-400 flex items-center gap-1.5 loading-pulse">
-                <Loader2 className="w-3 h-3 animate-spin" /> Processing with Mistral... (30-60s)
+                <Loader2 className="w-3 h-3 animate-spin" /> Processing... (30-60s)
               </span>
             )}
             {!sourceText && !isLoading && (

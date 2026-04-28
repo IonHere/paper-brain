@@ -333,12 +333,19 @@ async def process_text(request: ProcessRequest):
         if detected_num:
             num_questions = detected_num
 
+    # Analyze images — store description + data together
+    analyzed_images = []
     if request.images:
         for img in request.images[:5]:
             try:
                 result = await analyze_image_with_vision_model(img["data"], img.get("page", 0))
                 if result and result.get("description"):
                     image_descriptions.append(result["description"])
+                    analyzed_images.append({
+                        "page": img.get("page", 0),
+                        "data": img["data"],
+                        "description": result["description"]
+                    })
             except Exception as e:
                 logging.error(f"Image error: {e}")
 
@@ -386,7 +393,8 @@ async def process_text(request: ProcessRequest):
 
     return {"id": doc_id, "mode": mode, "results": results,
             "timestamp": timestamp, "source_preview": source_preview,
-            "images_processed": len(image_descriptions)}
+            "images_processed": len(image_descriptions),
+            "analyzed_images": analyzed_images}
 
 @api_router.post("/feedback")
 async def save_feedback(request: FeedbackRequest):

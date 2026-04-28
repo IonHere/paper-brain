@@ -26,7 +26,7 @@ function parseResult(result) {
   return result;
 }
 
-// Deduplicate images by comparing base64 data prefix (first 100 chars)
+// Deduplicate images by base64 prefix
 function deduplicateImages(images) {
   if (!images || images.length === 0) return [];
   const seen = new Set();
@@ -36,6 +36,44 @@ function deduplicateImages(images) {
     seen.add(key);
     return true;
   });
+}
+
+// Match images to content using keyword overlap between answer and image description
+function getRelevantImages(images, content) {
+  if (!images || images.length === 0) return [];
+  const dedupedImages = deduplicateImages(images);
+
+  // If no descriptions available, return all deduped images
+  const withDescriptions = dedupedImages.filter(img => img.description);
+  if (withDescriptions.length === 0) return dedupedImages;
+
+  if (!content || content.trim().length === 0) return dedupedImages;
+
+  // Extract meaningful keywords from content (5+ chars)
+  const contentWords = new Set(
+    content.toLowerCase().match(/\b\w{5,}\b/g) || []
+  );
+
+  // Score each image by keyword overlap with its description
+  const scored = withDescriptions.map(img => {
+    const descWords = (img.description || "").toLowerCase().match(/\b\w{5,}\b/g) || [];
+    const overlap = descWords.filter(w => contentWords.has(w)).length;
+    return { ...img, score: overlap };
+  });
+
+  // Return images with at least 1 keyword match, sorted by relevance
+  const relevant = scored
+    .filter(img => img.score > 0)
+    .sort((a, b) => b.score - a.score);
+
+  // Fallback: if nothing matched, return top 2 by description length
+  if (relevant.length === 0) {
+    return withDescriptions
+      .sort((a, b) => (b.description?.length || 0) - (a.description?.length || 0))
+      .slice(0, 2);
+  }
+
+  return relevant.slice(0, 3); // max 3 relevant images
 }
 
 // Markdown renderer with custom styles
@@ -84,12 +122,12 @@ function CopyButton({ text }) {
   );
 }
 
-function ImageGallery({ images }) {
+function ImageGallery({ images, content }) {
   const [expanded, setExpanded] = useState(false);
-  const dedupedImages = deduplicateImages(images);
-  if (!dedupedImages || dedupedImages.length === 0) return null;
+  const relevantImages = getRelevantImages(images, content);
+  if (!relevantImages || relevantImages.length === 0) return null;
 
-  const byPage = dedupedImages.reduce((acc, img) => {
+  const byPage = relevantImages.reduce((acc, img) => {
     const p = img.page;
     if (!acc[p]) acc[p] = [];
     acc[p].push(img);
@@ -104,7 +142,7 @@ function ImageGallery({ images }) {
       <div className="flex items-center gap-2">
         <Image className="w-3.5 h-3.5 text-muted-foreground" />
         <span className="text-xs text-muted-foreground">
-          {dedupedImages.length} image{dedupedImages.length > 1 ? "s" : ""} from document
+          {relevantImages.length} relevant image{relevantImages.length > 1 ? "s" : ""} from document
         </span>
       </div>
 
@@ -381,8 +419,11 @@ function ResultCard({ result, index, sourceText, multiSources, onRegenerate, onD
             <MarkdownContent content={displayResult} />
           </div>
 
-          {/* Images shown below content for all modes */}
-          <ImageGallery images={result.images} />
+          {/* Images shown below content — only relevant ones */}
+          <ImageGallery
+            images={result.analyzed_images || result.images}
+            content={displayResult}
+          />
 
           {!isError && (
             <FeedbackBar

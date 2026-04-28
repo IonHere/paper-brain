@@ -3,6 +3,7 @@ import { FileSearch, MessageSquareQuote, PenLine, CheckCircle, AlertCircle, Tras
 import { Button } from "./ui/button";
 import { motion, AnimatePresence } from "framer-motion";
 import axios from "axios";
+import ReactMarkdown from "react-markdown";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -23,6 +24,45 @@ function parseResult(result) {
     }
   } catch {}
   return result;
+}
+
+// Deduplicate images by comparing base64 data prefix (first 100 chars)
+function deduplicateImages(images) {
+  if (!images || images.length === 0) return [];
+  const seen = new Set();
+  return images.filter(img => {
+    const key = img.data?.substring(0, 100);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+// Markdown renderer with custom styles
+function MarkdownContent({ content }) {
+  return (
+    <ReactMarkdown
+      components={{
+        h1: ({ children }) => <h1 className="text-base font-bold text-foreground mt-4 mb-2">{children}</h1>,
+        h2: ({ children }) => <h2 className="text-sm font-bold text-foreground mt-3 mb-1.5">{children}</h2>,
+        h3: ({ children }) => <h3 className="text-sm font-semibold text-foreground/90 mt-2 mb-1">{children}</h3>,
+        p: ({ children }) => <p className="text-sm text-foreground/90 leading-relaxed mb-2">{children}</p>,
+        strong: ({ children }) => <strong className="font-semibold text-foreground">{children}</strong>,
+        em: ({ children }) => <em className="italic text-foreground/80">{children}</em>,
+        ul: ({ children }) => <ul className="list-disc list-inside space-y-1 mb-2 text-sm text-foreground/90">{children}</ul>,
+        ol: ({ children }) => <ol className="list-decimal list-inside space-y-1 mb-2 text-sm text-foreground/90">{children}</ol>,
+        li: ({ children }) => <li className="text-sm text-foreground/90 leading-relaxed pl-1">{children}</li>,
+        code: ({ inline, children }) =>
+          inline
+            ? <code className="bg-white/10 text-indigo-300 px-1.5 py-0.5 rounded text-xs font-mono">{children}</code>
+            : <pre className="bg-white/5 border border-white/10 rounded-lg p-3 overflow-x-auto text-xs font-mono text-foreground/80 mb-2"><code>{children}</code></pre>,
+        blockquote: ({ children }) => <blockquote className="border-l-2 border-indigo-500/50 pl-3 italic text-foreground/70 mb-2">{children}</blockquote>,
+        hr: () => <hr className="border-white/10 my-3" />,
+      }}
+    >
+      {content}
+    </ReactMarkdown>
+  );
 }
 
 function CopyButton({ text }) {
@@ -46,9 +86,10 @@ function CopyButton({ text }) {
 
 function ImageGallery({ images }) {
   const [expanded, setExpanded] = useState(false);
-  if (!images || images.length === 0) return null;
+  const dedupedImages = deduplicateImages(images);
+  if (!dedupedImages || dedupedImages.length === 0) return null;
 
-  const byPage = images.reduce((acc, img) => {
+  const byPage = dedupedImages.reduce((acc, img) => {
     const p = img.page;
     if (!acc[p]) acc[p] = [];
     acc[p].push(img);
@@ -63,7 +104,7 @@ function ImageGallery({ images }) {
       <div className="flex items-center gap-2">
         <Image className="w-3.5 h-3.5 text-muted-foreground" />
         <span className="text-xs text-muted-foreground">
-          {images.length} image{images.length > 1 ? "s" : ""} from document
+          {dedupedImages.length} image{dedupedImages.length > 1 ? "s" : ""} from document
         </span>
       </div>
 
@@ -120,10 +161,7 @@ function FeedbackBar({ result, sourceText, multiSources, onRegenerate }) {
     setDisliked(false);
     setShowFeedbackBox(false);
     try {
-      await axios.post(`${API}/feedback`, {
-        result_id: result.id,
-        feedback: "up",
-      });
+      await axios.post(`${API}/feedback`, { result_id: result.id, feedback: "up" });
     } catch (err) {
       console.error("Failed to save feedback", err);
     }
@@ -139,18 +177,15 @@ function FeedbackBar({ result, sourceText, multiSources, onRegenerate }) {
     if (!feedbackText.trim()) return;
     setIsRegenerating(true);
     setShowFeedbackBox(false);
-
     try {
       await axios.post(`${API}/feedback`, {
         result_id: result.id,
         feedback: "down",
         comment: feedbackText,
       });
-
       const texts = multiSources && multiSources.length > 0
         ? multiSources.map(s => ({ filename: s.filename, text: s.text }))
         : [{ filename: "Document", text: sourceText }];
-
       const res = await axios.post(`${API}/regenerate`, {
         texts,
         mode: result.mode,
@@ -160,7 +195,6 @@ function FeedbackBar({ result, sourceText, multiSources, onRegenerate }) {
         question: result.inputQuestion,
         answer: result.inputAnswer,
       });
-
       onRegenerate(result.id, {
         ...res.data,
         inputQuery: result.inputQuery,
@@ -169,7 +203,6 @@ function FeedbackBar({ result, sourceText, multiSources, onRegenerate }) {
         images: result.images,
         is_regenerated: true,
       });
-
       setFeedbackText("");
     } catch (err) {
       console.error("Failed to regenerate", err);
@@ -184,7 +217,6 @@ function FeedbackBar({ result, sourceText, multiSources, onRegenerate }) {
       const texts = multiSources && multiSources.length > 0
         ? multiSources.map(s => ({ filename: s.filename, text: s.text }))
         : [{ filename: "Document", text: sourceText }];
-
       const res = await axios.post(`${API}/regenerate`, {
         texts,
         mode: result.mode,
@@ -193,7 +225,6 @@ function FeedbackBar({ result, sourceText, multiSources, onRegenerate }) {
         question: result.inputQuestion,
         answer: result.inputAnswer,
       });
-
       onRegenerate(result.id, {
         ...res.data,
         inputQuery: result.inputQuery,
@@ -216,28 +247,22 @@ function FeedbackBar({ result, sourceText, multiSources, onRegenerate }) {
           onClick={handleLike}
           title="Like"
           className={`flex items-center gap-1 px-2 py-1 rounded-lg transition-colors text-[11px] ${
-            liked
-              ? "text-emerald-400 bg-emerald-500/10"
-              : "text-muted-foreground hover:text-emerald-400 hover:bg-emerald-500/10"
+            liked ? "text-emerald-400 bg-emerald-500/10" : "text-muted-foreground hover:text-emerald-400 hover:bg-emerald-500/10"
           }`}
         >
           <ThumbsUp className="w-3.5 h-3.5" />
           <span>Like</span>
         </button>
-
         <button
           onClick={handleDislike}
           title="Dislike"
           className={`flex items-center gap-1 px-2 py-1 rounded-lg transition-colors text-[11px] ${
-            disliked
-              ? "text-red-400 bg-red-500/10"
-              : "text-muted-foreground hover:text-red-400 hover:bg-red-500/10"
+            disliked ? "text-red-400 bg-red-500/10" : "text-muted-foreground hover:text-red-400 hover:bg-red-500/10"
           }`}
         >
           <ThumbsDown className="w-3.5 h-3.5" />
           <span>Dislike</span>
         </button>
-
         <button
           onClick={handleRegenerate}
           disabled={isRegenerating}
@@ -247,16 +272,13 @@ function FeedbackBar({ result, sourceText, multiSources, onRegenerate }) {
           <RefreshCw className={`w-3.5 h-3.5 ${isRegenerating ? "animate-spin" : ""}`} />
           <span>{isRegenerating ? "Regenerating..." : "Regenerate"}</span>
         </button>
-
         <CopyButton text={result.result} />
-
         {result.is_regenerated && (
           <span className="ml-auto text-[10px] text-indigo-400/70 bg-indigo-500/10 px-2 py-0.5 rounded-full">
             Regenerated
           </span>
         )}
       </div>
-
       <AnimatePresence>
         {showFeedbackBox && (
           <motion.div
@@ -272,9 +294,7 @@ function FeedbackBar({ result, sourceText, multiSources, onRegenerate }) {
               type="text"
               value={feedbackText}
               onChange={(e) => setFeedbackText(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") handleFeedbackSubmit();
-              }}
+              onKeyDown={(e) => { if (e.key === "Enter") handleFeedbackSubmit(); }}
               placeholder="What's wrong with this response?"
               className="flex-1 bg-transparent text-xs text-foreground placeholder:text-muted-foreground/40 outline-none"
             />
@@ -308,7 +328,6 @@ function ResultCard({ result, index, sourceText, multiSources, onRegenerate, onD
       className="glass-card rounded-xl p-5 group relative"
       data-testid={`result-card-${result.id}`}
     >
-      {/* Delete button top right */}
       <button
         onClick={() => onDelete(result.id)}
         className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-lg hover:bg-red-500/10 text-muted-foreground/50 hover:text-red-400"
@@ -326,22 +345,18 @@ function ResultCard({ result, index, sourceText, multiSources, onRegenerate, onD
             <span className={`mode-label ${isError ? "text-red-400" : isCombined ? "text-violet-400" : config.color}`}>
               {isError ? "Error" : isCombined ? "Combined Summary" : config.label}
             </span>
-
             {result.filename && !isCombined && (
               <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/5 text-muted-foreground border border-white/5">
                 {result.filename}
               </span>
             )}
-
             <span className="text-[10px] text-muted-foreground/50 ml-auto mr-6">
               {new Date(result.timestamp).toLocaleTimeString()}
             </span>
           </div>
 
           {result.inputQuery && (
-            <p className="text-xs text-muted-foreground mb-2 italic">
-              Q: {result.inputQuery}
-            </p>
+            <p className="text-xs text-muted-foreground mb-2 italic">Q: {result.inputQuery}</p>
           )}
 
           {result.mode === "evaluate" && (result.inputQuestion || result.inputAnswer) && (
@@ -361,13 +376,13 @@ function ResultCard({ result, index, sourceText, multiSources, onRegenerate, onD
             </div>
           )}
 
-          <div className="text-sm text-foreground/90 leading-relaxed whitespace-pre-wrap">
-            {displayResult}
+          {/* Rendered markdown content */}
+          <div className="prose prose-invert prose-sm max-w-none">
+            <MarkdownContent content={displayResult} />
           </div>
 
-          {result.mode === "summarize" && (
-           <ImageGallery images={result.images} />
-          )}
+          {/* Images shown below content for all modes */}
+          <ImageGallery images={result.images} />
 
           {!isError && (
             <FeedbackBar
@@ -385,7 +400,6 @@ function ResultCard({ result, index, sourceText, multiSources, onRegenerate, onD
 
 export default function ResultDisplay({ results, onClear, sourceText, multiSources, onRegenerate, onDelete }) {
   if (results.length === 0) return null;
-
   return (
     <div className="w-full" data-testid="result-display">
       <div className="flex items-center justify-between mb-4">

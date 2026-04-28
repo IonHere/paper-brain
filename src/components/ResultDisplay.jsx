@@ -58,22 +58,22 @@ function getRelevantImages(images, content) {
   const scored = withDescriptions.map(img => {
     const descWords = (img.description || "").toLowerCase().match(/\b\w{5,}\b/g) || [];
     const overlap = descWords.filter(w => contentWords.has(w)).length;
-    return { ...img, score: overlap };
+    const score = overlap / Math.max(descWords.length, 1); // normalize by desc length
+    return { ...img, score, overlap };
   });
 
-  // Return images with at least 1 keyword match, sorted by relevance
+  // Require at least 2 keyword matches AND score above threshold
   const relevant = scored
-    .filter(img => img.score > 0)
+    .filter(img => img.overlap >= 2 && img.score > 0.05)
     .sort((a, b) => b.score - a.score);
 
-  // Fallback: if nothing matched, return top 2 by description length
+  // Fallback: if nothing matched well, return top 1 by score
   if (relevant.length === 0) {
-    return withDescriptions
-      .sort((a, b) => (b.description?.length || 0) - (a.description?.length || 0))
-      .slice(0, 2);
+    const top = scored.sort((a, b) => b.score - a.score)[0];
+    return top && top.overlap >= 1 ? [top] : [];
   }
 
-  return relevant.slice(0, 3); // max 3 relevant images
+  return relevant.slice(0, 3);
 }
 
 // Markdown renderer with custom styles

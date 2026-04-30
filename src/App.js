@@ -569,9 +569,9 @@ function App() {
                 className="text-center mb-8"
               >
                 <div className="flex items-center justify-center gap-3 mb-4">
-                  <img src="/logo.png" alt="PaperBrain" className="w-10 h-10 object-contain" />
+                  <img src="/logo.png" alt="PaperBrain" className="w-16 h-16 object-contain" />
                   <h1
-                    className="text-3xl sm:text-4xl lg:text-5xl font-bold tracking-tight text-foreground"
+                    className="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight text-foreground"
                     data-testid="app-title"
                     style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}
                   >

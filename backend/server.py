@@ -93,6 +93,7 @@ api_router = APIRouter(prefix="/api")
 class ProcessRequest(BaseModel):
     texts: List[dict]
     mode: str
+    session_id: Optional[str] = None
     query: Optional[str] = None
     question: Optional[str] = None
     answer: Optional[str] = None
@@ -124,7 +125,9 @@ class SessionRequest(BaseModel):
 # ─────────────────────────────────────────────
 # MAIN MODEL — Groq text generation
 # ─────────────────────────────────────────────
-async def call_text_model(prompt: str) -> str:
+async def call_text_model(prompt: str, retries: int = 3) -> str:
+    """Main text model — generates all text responses with retry on rate limit"""
+    import asyncio
     headers = {
         "Authorization": f"Bearer {GROQ_API_KEY}",
         "Content-Type": "application/json"
@@ -135,15 +138,23 @@ async def call_text_model(prompt: str) -> str:
         "max_tokens": 2048,
         "temperature": 0.7
     }
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        try:
-            response = await client.post(GROQ_API_URL, headers=headers, json=payload)
-            if response.status_code == 200:
-                data = response.json()
-                return data["choices"][0]["message"]["content"]
-            raise HTTPException(status_code=502, detail=f"Groq API error: {response.status_code}")
-        except httpx.TimeoutException:
-            raise HTTPException(status_code=504, detail="Text model timed out")
+    for attempt in range(retries):
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            try:
+                response = await client.post(GROQ_API_URL, headers=headers, json=payload)
+                if response.status_code == 200:
+                    data = response.json()
+                    return data["choices"][0]["message"]["content"]
+                elif response.status_code == 429:
+                    # Rate limited — wait and retry
+                    wait_time = (attempt + 1) * 15  # 15s, 30s, 45s
+                    logging.warning(f"Groq rate limit hit, retrying in {wait_time}s...")
+                    await asyncio.sleep(wait_time)
+                    continue
+                raise HTTPException(status_code=502, detail=f"Groq API error: {response.status_code}")
+            except httpx.TimeoutException:
+                raise HTTPException(status_code=504, detail="Text model timed out")
+    raise HTTPException(status_code=429, detail="Rate limit exceeded. Please wait a moment and try again.")
 
 # ─────────────────────────────────────────────
 # SUPPORT MODEL — Gemini Vision
@@ -533,7 +544,8 @@ async def process_text(request: ProcessRequest):
         "full_text": request.texts[0]["text"][:10000],
         "filename": request.texts[0].get("filename", ""),
         "query": request.query, "question": request.question,
-        "answer": request.answer, "image_count": len(image_descriptions)
+        "answer": request.answer, "image_count": len(image_descriptions),
+        "session_id": request.session_id or doc_id
     })
 
     return {

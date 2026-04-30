@@ -208,12 +208,12 @@ function App() {
       const historyRes = await axios.get(`${API}/history`);
       const historyItems = historyRes.data || [];
 
-      // Group history by date
+      // Group history by session_id
       const grouped = {};
       historyItems.forEach(item => {
-        const date = new Date(item.timestamp).toLocaleDateString();
-        const key = `history-${date}`;
+        const key = item.session_id || `history-${new Date(item.timestamp).toLocaleDateString()}`;
         if (!grouped[key]) {
+          const date = new Date(item.timestamp).toLocaleDateString();
           const name = item.query
             ? item.query.slice(0, 35)
             : item.source_preview
@@ -238,7 +238,7 @@ function App() {
           inputAnswer: item.answer,
           sourceText: item.full_text || "",
           filename: item.filename || "",
-          sections: null, // history items don't have sections — will render as plain markdown
+          sections: null,
         });
       });
 
@@ -470,7 +470,7 @@ function App() {
               </motion.div>
 
               <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3, duration: 0.4 }} className="w-full max-w-3xl">
-                <SearchBox sourceText={sourceText} multiSources={multiSources} onResult={handleResult} disabled={!sourceText} results={results} />
+                <SearchBox sourceText={sourceText} multiSources={multiSources} onResult={handleResult} disabled={!sourceText} results={results} sessionId={currentSessionId} />
               </motion.div>
             </motion.div>
           )}
@@ -504,7 +504,7 @@ function App() {
 
             <div className="fixed bottom-0 left-0 right-0 z-20 bg-gradient-to-t from-[#050505] via-[#050505]/90 to-transparent pt-8 pb-6 px-4">
               <div className="max-w-3xl mx-auto">
-                <SearchBox sourceText={sourceText} multiSources={multiSources} onResult={handleResult} disabled={!sourceText} results={results} />
+                <SearchBox sourceText={sourceText} multiSources={multiSources} onResult={handleResult} disabled={!sourceText} results={results} sessionId={currentSessionId} />
               </div>
             </div>
           </div>

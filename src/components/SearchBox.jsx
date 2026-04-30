@@ -18,7 +18,7 @@ const MODES = [
   { value: "auto", label: "Chat", icon: MessageCircle, desc: "Type your own prompt freely" },
 ];
 
-export default function SearchBox({ sourceText, multiSources, onResult, disabled, results }) {
+export default function SearchBox({ sourceText, multiSources, onResult, disabled, results, sessionId }) {
   const [mode, setMode] = useState("summarize");
   const [query, setQuery] = useState("");
   const [evalQuestion, setEvalQuestion] = useState("");
@@ -73,6 +73,7 @@ export default function SearchBox({ sourceText, multiSources, onResult, disabled
       const payload = {
         texts: buildTexts(),
         mode: mode,
+        session_id: sessionId || null,
         query: mode === "auto" || mode === "answer" || mode === "question" ? query : undefined,
         question: mode === "evaluate" ? evalQuestion : undefined,
         answer: mode === "evaluate" ? evalAnswer : undefined,

@@ -17,11 +17,24 @@ const MODE_CONFIG = {
 
 function parseResult(result) {
   if (!result) return "";
+  // Handle array format: [{"filename": "...", "result": "..."}]
   try {
-    const parsed = JSON.parse(result.replace(/'/g, '"'));
-    if (Array.isArray(parsed) && parsed[0]?.result) return parsed[0].result;
+    // Try parsing as JSON array
+    let parsed = result;
+    if (typeof result === "string") {
+      // Replace single quotes with double quotes for Python-style dicts
+      parsed = JSON.parse(result.replace(/'/g, '"'));
+    }
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      // Return first result's text
+      return parsed[0]?.result || parsed[0]?.text || String(parsed[0]) || "";
+    }
+    if (typeof parsed === "object" && parsed?.result) {
+      return parsed.result;
+    }
   } catch {}
-  return result;
+  // Return as-is if not JSON
+  return typeof result === "string" ? result : String(result);
 }
 
 // ── Markdown renderer ──

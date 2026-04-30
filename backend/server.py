@@ -18,7 +18,7 @@ ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
 # ─────────────────────────────────────────────
-# Supabase REST API (works on Vercel serverless)
+# Supabase REST API
 # ─────────────────────────────────────────────
 SUPABASE_URL = os.environ.get('SUPABASE_URL', '')
 SUPABASE_KEY = os.environ.get('SUPABASE_SECRET_KEY', '')
@@ -31,7 +31,7 @@ def supabase_headers():
         "Prefer": "return=representation"
     }
 
-async def sb_select(table: str, filters: dict = None, order: str = None, limit: int = None):
+async def sb_select(table, filters=None, order=None, limit=None):
     url = f"{SUPABASE_URL}/rest/v1/{table}?select=*"
     if filters:
         for k, v in filters.items():
@@ -44,41 +44,43 @@ async def sb_select(table: str, filters: dict = None, order: str = None, limit: 
         r = await client.get(url, headers=supabase_headers())
         return r.json() if r.status_code == 200 else []
 
-async def sb_insert(table: str, data: dict):
+async def sb_insert(table, data):
     url = f"{SUPABASE_URL}/rest/v1/{table}"
     async with httpx.AsyncClient(timeout=10.0) as client:
         r = await client.post(url, headers=supabase_headers(), json=data)
         return r.json()
 
-async def sb_update(table: str, match: dict, data: dict):
+async def sb_update(table, match, data):
     url = f"{SUPABASE_URL}/rest/v1/{table}?"
     url += "&".join([f"{k}=eq.{v}" for k, v in match.items()])
     async with httpx.AsyncClient(timeout=10.0) as client:
         r = await client.patch(url, headers=supabase_headers(), json=data)
         return r.json()
 
-async def sb_delete(table: str, match: dict):
+async def sb_delete(table, match):
     url = f"{SUPABASE_URL}/rest/v1/{table}?"
     url += "&".join([f"{k}=eq.{v}" for k, v in match.items()])
     async with httpx.AsyncClient(timeout=10.0) as client:
         r = await client.delete(url, headers=supabase_headers())
         return r.status_code
 
-async def sb_upsert(table: str, data: dict, on_conflict: str):
+async def sb_upsert(table, data, on_conflict):
     url = f"{SUPABASE_URL}/rest/v1/{table}"
-    headers = {**supabase_headers(), "Prefer": f"resolution=merge-duplicates,return=representation"}
+    headers = {**supabase_headers(), "Prefer": "resolution=merge-duplicates,return=representation"}
     async with httpx.AsyncClient(timeout=10.0) as client:
         r = await client.post(url, headers=headers, json=data)
         return r.json()
 
 # ─────────────────────────────────────────────
-# Groq API
+# MAIN MODEL — Groq (Mistral/LLaMA) for text
 # ─────────────────────────────────────────────
 GROQ_API_KEY = os.environ.get('GROQ_API_KEY', '')
 GROQ_MODEL = os.environ.get('HF_TEXT_MODEL', 'llama-3.1-8b-instant')
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 
-# Gemini Vision API
+# ─────────────────────────────────────────────
+# SUPPORT MODEL — Gemini Vision for images
+# ─────────────────────────────────────────────
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
 
@@ -120,10 +122,9 @@ class SessionRequest(BaseModel):
     filename: Optional[str] = None
 
 # ─────────────────────────────────────────────
-# AI model calls  (HuggingFace)
+# MAIN MODEL — Groq text generation
 # ─────────────────────────────────────────────
 async def call_text_model(prompt: str) -> str:
-    """Call Groq API (fast, free, supports Llama & Mistral)"""
     headers = {
         "Authorization": f"Bearer {GROQ_API_KEY}",
         "Content-Type": "application/json"
@@ -131,7 +132,7 @@ async def call_text_model(prompt: str) -> str:
     payload = {
         "model": GROQ_MODEL,
         "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": 1024,
+        "max_tokens": 2048,
         "temperature": 0.7
     }
     async with httpx.AsyncClient(timeout=60.0) as client:
@@ -140,17 +141,20 @@ async def call_text_model(prompt: str) -> str:
             if response.status_code == 200:
                 data = response.json()
                 return data["choices"][0]["message"]["content"]
-            raise HTTPException(status_code=502, detail=f"Groq API error: {response.status_code} {response.text}")
+            raise HTTPException(status_code=502, detail=f"Groq API error: {response.status_code}")
         except httpx.TimeoutException:
-            raise HTTPException(status_code=504, detail="Groq model timed out")
+            raise HTTPException(status_code=504, detail="Text model timed out")
 
+# ─────────────────────────────────────────────
+# SUPPORT MODEL — Gemini Vision
+# ─────────────────────────────────────────────
 async def analyze_image_with_vision_model(image_base64: str, page: int = 0) -> dict:
-    """Analyze image using Gemini Vision - reads diagrams, charts, handwriting"""
+    """Support model — reads images, diagrams, handwriting"""
     try:
         payload = {
             "contents": [{
                 "parts": [
-                    {"text": "Analyze this image from a PDF document. If it contains handwritten text, extract ALL the text exactly. If it contains a diagram, chart, or figure, describe it in detail including labels, relationships, and key concepts. If it contains printed text, extract it. Be thorough and specific."},
+                    {"text": "Analyze this image from a PDF. If handwritten: extract ALL text exactly. If diagram/chart/figure: describe in detail with labels, relationships, key concepts, and topic name. If printed text: extract it. Be thorough and specific about the topic this image covers."},
                     {"inline_data": {"mime_type": "image/png", "data": image_base64}}
                 ]
             }],
@@ -165,14 +169,120 @@ async def analyze_image_with_vision_model(image_base64: str, page: int = 0) -> d
                 data = response.json()
                 text = data["candidates"][0]["content"]["parts"][0]["text"]
                 return {"page": page, "description": text, "type": "gemini_vision"}
-            logging.error(f"Gemini Vision error: {response.status_code} {response.text}")
             return {"page": page, "description": "Image analysis failed", "type": "error"}
     except Exception as e:
         logging.error(f"Vision error: {e}")
         return {"page": page, "description": "Image analysis unavailable", "type": "error"}
 
+async def extract_handwritten_text(image_base64: str) -> str:
+    """Support model — OCR for handwritten/scanned PDFs"""
+    try:
+        payload = {
+            "contents": [{
+                "parts": [
+                    {"text": "This is a scanned handwritten document. Extract ALL handwritten text exactly as written, preserving structure, headings, bullet points, and paragraphs. Output only the extracted text."},
+                    {"inline_data": {"mime_type": "image/png", "data": image_base64}}
+                ]
+            }],
+            "generationConfig": {"maxOutputTokens": 2048, "temperature": 0.0}
+        }
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                f"{GEMINI_API_URL}?key={GEMINI_API_KEY}",
+                json=payload
+            )
+            if response.status_code == 200:
+                data = response.json()
+                return data["candidates"][0]["content"]["parts"][0]["text"]
+            return ""
+    except Exception as e:
+        logging.error(f"Handwriting OCR error: {e}")
+        return ""
+
 # ─────────────────────────────────────────────
-# Intent detection & prompt builder (unchanged)
+# SUPPORT MODEL — Section-image matching logic
+# ─────────────────────────────────────────────
+def extract_keywords(text: str) -> set:
+    return set(re.findall(r'\b\w{5,}\b', text.lower()))
+
+def find_best_image_for_section(section_text: str, analyzed_images: list, used_images: set):
+    """Find most relevant unused image for a section. Never reuses same image."""
+    if not analyzed_images:
+        return None
+    section_keywords = extract_keywords(section_text)
+    if not section_keywords:
+        return None
+
+    best_image = None
+    best_score = 0
+
+    for i, img in enumerate(analyzed_images):
+        if i in used_images:
+            continue
+        desc = img.get("description", "")
+        if not desc or img.get("type") == "error":
+            continue
+        desc_keywords = extract_keywords(desc)
+        overlap = len(section_keywords & desc_keywords)
+        score = overlap / max(len(desc_keywords), 1)
+        if overlap >= 2 and score > 0.04 and score > best_score:
+            best_score = score
+            best_image = (i, img)
+
+    if best_image:
+        used_images.add(best_image[0])
+        img_data = best_image[1]
+        return {"page": img_data["page"], "data": img_data["data"]}
+    return None
+
+def build_sections_with_images(text: str, analyzed_images: list, mode: str) -> list:
+    """
+    SUPPORT MODEL logic:
+    Splits main model's text into sections and matches each to a relevant image.
+    Never modifies the text — only adds image references.
+    Adaptive to all modes: answer, summarize, question, evaluate.
+    """
+    if not analyzed_images:
+        return [{"heading": "", "text": text, "image": None}]
+
+    sections = []
+    used_images = set()
+
+    # Try splitting by ## headings (used in answer, summarize, evaluate modes)
+    parts = re.split(r'(?=^##\s)', text, flags=re.MULTILINE)
+
+    if len(parts) > 1:
+        # Multiple ## sections — match image per section
+        for part in parts:
+            part = part.strip()
+            if not part:
+                continue
+            lines = part.split('\n', 1)
+            heading = lines[0].lstrip('#').strip() if lines[0].startswith('#') else ""
+            body = lines[1].strip() if len(lines) > 1 else lines[0].strip()
+            search_text = f"{heading} {body}"
+            image = find_best_image_for_section(search_text, analyzed_images, used_images)
+            sections.append({"heading": heading, "text": body, "image": image})
+        return sections
+
+    # Question mode — split by numbered items
+    if mode == "question":
+        items = re.split(r'(?=^\d+[\.\)]\s)', text, flags=re.MULTILINE)
+        if len(items) > 1:
+            for item in items:
+                item = item.strip()
+                if not item:
+                    continue
+                image = find_best_image_for_section(item, analyzed_images, used_images)
+                sections.append({"heading": "", "text": item, "image": image})
+            return sections
+
+    # Single block fallback — match one image to whole text
+    image = find_best_image_for_section(text, analyzed_images, used_images)
+    return [{"heading": "", "text": text, "image": image}]
+
+# ─────────────────────────────────────────────
+# Intent detection & prompt builder
 # ─────────────────────────────────────────────
 def detect_intent(user_input: str):
     text = user_input.lower().strip()
@@ -203,20 +313,20 @@ def build_prompt(mode, text, filename="", query=None, question=None, answer=None
 
     image_context = ""
     if image_descriptions:
-        image_context = "\n\nImages in document:\n"
+        image_context = "\n\nImages/diagrams in document:\n"
         for i, desc in enumerate(image_descriptions[:5]):
-            image_context += f"Image {i+1}: {desc}\n"
+            image_context += f"Image {i+1}: {desc[:200]}\n"
 
     if mode == "summarize":
-        return f"""[INST] Summarize the following text clearly in bullet points. Focus only on key points.{history_context}{image_context}
+        return f"""[INST] Summarize the following text using clear ## headings for each major topic, with bullet points under each heading. Cover ALL key topics thoroughly.{history_context}{image_context}
 
 Text{label}:
 {truncated}
 
-Summary: [/INST]"""
+Detailed Summary: [/INST]"""
 
     elif mode == "question":
-        return f"""[INST] Generate exactly {num_questions} questions based on this text. Output ONLY a numbered list.{history_context}{image_context}
+        return f"""[INST] Generate exactly {num_questions} questions based on this text. Output ONLY a numbered list. Each question on its own line.{history_context}{image_context}
 
 Text{label}:
 {truncated}
@@ -224,17 +334,17 @@ Text{label}:
 Questions: [/INST]"""
 
     elif mode == "answer":
-        return f"""[INST] Answer this question based ONLY on the provided text. Be direct and concise.{history_context}{image_context}
+        return f"""[INST] Answer the following question in detail. If the question covers multiple topics, use ## headings for each sub-topic. Use bullet points where appropriate. Base your answer ONLY on the provided text.{history_context}{image_context}
 
 Text{label}:
 {truncated}
 
 Question: {query}
 
-Answer: [/INST]"""
+Detailed Answer: [/INST]"""
 
     elif mode == "evaluate":
-        return f"""[INST] Evaluate if this answer correctly addresses the question. Give a score 1-10 and explain.{history_context}{image_context}
+        return f"""[INST] Evaluate this answer using these ## headings exactly: ## Score, ## Correct Points, ## Missing Points, ## How to Improve. Be specific and detailed under each heading.{history_context}{image_context}
 
 Text{label}:
 {truncated[:2000]}
@@ -245,16 +355,16 @@ Answer: {answer}
 Evaluation: [/INST]"""
 
     else:
-        return f"""[INST] Answer this question based on the text.{history_context}{image_context}
+        return f"""[INST] Answer this question in detail. If covering multiple topics, use ## headings for each sub-topic.{history_context}{image_context}
 
 Text{label}:
 {truncated}
 
 Question: {query}
 
-Answer: [/INST]"""
+Detailed Answer: [/INST]"""
 
-def are_texts_related(texts: List[dict]) -> bool:
+def are_texts_related(texts):
     if len(texts) < 2:
         return False
     word_sets = []
@@ -271,7 +381,7 @@ def are_texts_related(texts: List[dict]) -> bool:
 # ─────────────────────────────────────────────
 @api_router.get("/")
 async def root():
-    return {"message": "PaperBrain API - HuggingFace + Supabase"}
+    return {"message": "PaperBrain API — Groq (main) + Gemini Vision (support)"}
 
 @api_router.post("/upload-pdf")
 async def upload_pdf(file: UploadFile = File(...)):
@@ -282,13 +392,16 @@ async def upload_pdf(file: UploadFile = File(...)):
     text = ""
     pages_count = 0
     images = []
+    is_scanned = False
 
     try:
         with pdfplumber.open(io.BytesIO(content)) as pdf:
             pages_count = len(pdf.pages)
+            total_text = ""
             for page_num, page in enumerate(pdf.pages):
                 page_text = page.extract_text()
                 if page_text:
+                    total_text += page_text
                     text += page_text + "\n"
                 for img_obj in page.images:
                     try:
@@ -308,13 +421,34 @@ async def upload_pdf(file: UploadFile = File(...)):
                                        "width": round(width), "height": round(height)})
                     except Exception:
                         continue
+
+            # Detect scanned/handwritten PDF
+            if len(total_text.strip()) < 100 and len(images) > 0:
+                is_scanned = True
+
     except Exception:
         raise HTTPException(status_code=400, detail="Failed to parse PDF")
+
+    # Handwritten PDF: Gemini reads images → extracts text → passes to main model
+    if is_scanned and images:
+        extracted_texts = []
+        for img in images[:10]:
+            extracted = await extract_handwritten_text(img["data"])
+            if extracted:
+                extracted_texts.append(extracted)
+        if extracted_texts:
+            text = "\n\n".join(extracted_texts)
 
     if not text.strip():
         raise HTTPException(status_code=400, detail="Could not extract text from PDF")
 
-    return {"text": text.strip(), "pages": pages_count, "filename": file.filename, "images": images[:20]}
+    return {
+        "text": text.strip(),
+        "pages": pages_count,
+        "filename": file.filename,
+        "images": images[:20],
+        "is_scanned": is_scanned
+    }
 
 @api_router.post("/process")
 async def process_text(request: ProcessRequest):
@@ -333,10 +467,10 @@ async def process_text(request: ProcessRequest):
         if detected_num:
             num_questions = detected_num
 
-    # Analyze images — store description + data together
+    # ── SUPPORT MODEL STEP 1: Gemini analyzes all images ──
     analyzed_images = []
     if request.images:
-        for img in request.images[:5]:
+        for img in request.images[:8]:
             try:
                 result = await analyze_image_with_vision_model(img["data"], img.get("page", 0))
                 if result and result.get("description"):
@@ -347,8 +481,9 @@ async def process_text(request: ProcessRequest):
                         "description": result["description"]
                     })
             except Exception as e:
-                logging.error(f"Image error: {e}")
+                logging.error(f"Image analysis error: {e}")
 
+    # ── MAIN MODEL: Groq generates all text ──
     if len(request.texts) == 1:
         t = request.texts[0]
         prompt = build_prompt(mode, t["text"], t.get("filename", ""), request.query,
@@ -377,7 +512,17 @@ async def process_text(request: ProcessRequest):
             result_text = await call_text_model(prompt)
             results.append({"filename": "All Documents", "result": result_text})
 
-    # Save to Supabase history table
+    # ── SUPPORT MODEL STEP 2: Gemini matches images to each section ──
+    sectioned_results = []
+    for r in results:
+        sections = build_sections_with_images(r["result"], analyzed_images, mode)
+        sectioned_results.append({
+            "filename": r.get("filename", "Document"),
+            "result": r["result"],
+            "is_combined": r.get("is_combined", False),
+            "sections": sections
+        })
+
     doc_id = str(uuid.uuid4())
     timestamp = datetime.now(timezone.utc).isoformat()
     source_preview = request.texts[0]["text"][:200] + "..."
@@ -391,10 +536,15 @@ async def process_text(request: ProcessRequest):
         "answer": request.answer, "image_count": len(image_descriptions)
     })
 
-    return {"id": doc_id, "mode": mode, "results": results,
-            "timestamp": timestamp, "source_preview": source_preview,
-            "images_processed": len(image_descriptions),
-            "analyzed_images": analyzed_images}
+    return {
+        "id": doc_id,
+        "mode": mode,
+        "results": sectioned_results,
+        "timestamp": timestamp,
+        "source_preview": source_preview,
+        "images_processed": len(analyzed_images),
+        "analyzed_images": analyzed_images
+    }
 
 @api_router.post("/feedback")
 async def save_feedback(request: FeedbackRequest):
@@ -409,58 +559,62 @@ async def get_preferences():
 @api_router.post("/regenerate")
 async def regenerate_response(request: RegenerateRequest):
     mode = request.mode
-    num_questions = 5
-
     if request.query:
-        detected_mode, detected_num = detect_intent(request.query)
+        detected_mode, _ = detect_intent(request.query)
         if request.mode == "auto":
             mode = detected_mode
-        if detected_num:
-            num_questions = detected_num
 
     truncated = request.texts[0]["text"][:4000] if request.texts else ""
-    image_descriptions = []
 
+    analyzed_images = []
     if request.images:
-        for img in request.images[:5]:
+        for img in request.images[:8]:
             try:
                 result = await analyze_image_with_vision_model(img["data"], img.get("page", 0))
                 if result and result.get("description"):
-                    image_descriptions.append(result["description"])
+                    analyzed_images.append({
+                        "page": img.get("page", 0),
+                        "data": img["data"],
+                        "description": result["description"]
+                    })
             except Exception as e:
                 logging.error(f"Image error: {e}")
 
     feedback_instruction = ""
     if request.feedback_comment:
-        feedback_instruction = f"\nUser feedback: {request.feedback_comment}\nFollow this instruction strictly."
+        feedback_instruction = f"\nUser feedback: {request.feedback_comment}\nFollow this strictly.\n"
 
     prompt = f"""[INST] {feedback_instruction}
-
-Improve this response based on the feedback and text:
+Improve this response based on feedback. Use ## headings for sections. Do NOT change factual content.
 
 Text: {truncated}
-
 Original response: {request.previous_response}
-
 Question: {request.query}
 
 Improved response: [/INST]"""
 
-    result = await call_text_model(prompt)
+    result_text = await call_text_model(prompt)
+    sections = build_sections_with_images(result_text, analyzed_images, mode)
 
     doc_id = str(uuid.uuid4())
     timestamp = datetime.now(timezone.utc).isoformat()
 
     await sb_insert("history", {
-        "id": doc_id, "mode": mode, "result": result,
+        "id": doc_id, "mode": mode, "result": result_text,
         "timestamp": timestamp, "source_preview": truncated[:200],
         "full_text": truncated,
         "filename": request.texts[0].get("filename", "") if request.texts else "",
         "query": request.query, "is_regenerated": True
     })
 
-    return {"id": doc_id, "mode": mode, "result": result,
-            "timestamp": timestamp, "is_regenerated": True}
+    return {
+        "id": doc_id, "mode": mode,
+        "result": result_text,
+        "sections": sections,
+        "analyzed_images": analyzed_images,
+        "timestamp": timestamp,
+        "is_regenerated": True
+    }
 
 @api_router.get("/history")
 async def get_history():
@@ -474,7 +628,6 @@ async def delete_history_item(item_id: str):
 
 @api_router.delete("/history")
 async def clear_history():
-    # Delete all — Supabase requires a filter, use neq on a field that always has value
     await sb_delete("history", {"id": "neq.null"})
     return {"message": "History cleared"}
 
@@ -504,9 +657,6 @@ async def delete_session(session_id: str):
     await sb_delete("sessions", {"session_id": session_id})
     return {"message": "Session deleted"}
 
-# ─────────────────────────────────────────────
-# App setup
-# ─────────────────────────────────────────────
 app.include_router(api_router)
 
 app.add_middleware(

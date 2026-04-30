@@ -97,6 +97,7 @@ export default function SearchBox({ sourceText, multiSources, onResult, disabled
             inputAnswer: evalAnswer,
             images: multiSources?.find(s => s.filename === r.filename)?.images || [],
             analyzed_images: analyzedImages,
+            sections: r.sections || null,
           });
         });
       } else {
@@ -112,6 +113,7 @@ export default function SearchBox({ sourceText, multiSources, onResult, disabled
           inputAnswer: evalAnswer,
           images: multiSources?.find(s => s.filename === r.filename)?.images || [],
           analyzed_images: analyzedImages,
+          sections: r.sections || null,
         });
       }
 

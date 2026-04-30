@@ -48,9 +48,7 @@ function Sidebar({ isOpen, onClose, onNewChat, sessions, setSessions, onSelectSe
           >
             <div className="flex items-center justify-between px-4 py-4 border-b border-white/5">
               <div className="flex items-center gap-2">
-                <div className="w-7 h-7 rounded-lg bg-indigo-600/20 border border-indigo-500/20 flex items-center justify-center">
-                  <Braces className="w-3.5 h-3.5 text-indigo-400" />
-                </div>
+                <img src="/logo.png" alt="PaperBrain" className="w-7 h-7 object-contain" />
                 <span className="text-sm font-semibold text-foreground">
                   Paper<span className="text-indigo-400">Brain</span>
                 </span>
@@ -571,9 +569,7 @@ function App() {
                 className="text-center mb-8"
               >
                 <div className="flex items-center justify-center gap-3 mb-4">
-                  <div className="w-10 h-10 rounded-xl bg-indigo-600/20 border border-indigo-500/20 flex items-center justify-center">
-                    <Braces className="w-5 h-5 text-indigo-400" />
-                  </div>
+                  <img src="/logo.png" alt="PaperBrain" className="w-10 h-10 object-contain" />
                   <h1
                     className="text-3xl sm:text-4xl lg:text-5xl font-bold tracking-tight text-foreground"
                     data-testid="app-title"
@@ -630,9 +626,7 @@ function App() {
             >
               <div className="flex items-center gap-3">
                 <div className="w-8" />
-                <div className="w-7 h-7 rounded-lg bg-indigo-600/20 border border-indigo-500/20 flex items-center justify-center">
-                  <Braces className="w-3.5 h-3.5 text-indigo-400" />
-                </div>
+                <img src="/logo.png" alt="PaperBrain" className="w-7 h-7 object-contain" />
                 <span className="text-sm font-semibold text-foreground">
                   Paper<span className="text-indigo-400">Brain</span>
                 </span>

@@ -36,7 +36,7 @@ function MarkdownContent({ content }) {
         strong: ({ children }) => <strong className="font-semibold text-foreground">{children}</strong>,
         em: ({ children }) => <em className="italic text-foreground/80">{children}</em>,
         ul: ({ children }) => <ul className="list-disc list-inside space-y-1 mb-2 text-sm text-foreground/90">{children}</ul>,
-        ol: ({ children }) => <ol className="list-decimal list-inside space-y-1 mb-2 text-sm text-foreground/90">{children}</ol>,
+        ol: ({ children, start }) => <ol start={start} className="list-decimal space-y-1 mb-2 text-sm text-foreground/90 pl-5">{children}</ol>,
         li: ({ children }) => <li className="text-sm text-foreground/90 leading-relaxed pl-1">{children}</li>,
         code: ({ inline, children }) =>
           inline

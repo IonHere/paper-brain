@@ -146,7 +146,6 @@ async def call_text_model(prompt: str, retries: int = 3) -> str:
                     data = response.json()
                     return data["choices"][0]["message"]["content"]
                 elif response.status_code == 429:
-                    # Rate limited — wait and retry
                     wait_time = (attempt + 1) * 15  # 15s, 30s, 45s
                     logging.warning(f"Groq rate limit hit, retrying in {wait_time}s...")
                     await asyncio.sleep(wait_time)
@@ -259,11 +258,9 @@ def build_sections_with_images(text: str, analyzed_images: list, mode: str) -> l
     sections = []
     used_images = set()
 
-    # Try splitting by ## headings (used in answer, summarize, evaluate modes)
     parts = re.split(r'(?=^##\s)', text, flags=re.MULTILINE)
 
     if len(parts) > 1:
-        # Multiple ## sections — match image per section
         for part in parts:
             part = part.strip()
             if not part:
@@ -276,7 +273,6 @@ def build_sections_with_images(text: str, analyzed_images: list, mode: str) -> l
             sections.append({"heading": heading, "text": body, "image": image})
         return sections
 
-    # Question mode — split by numbered items
     if mode == "question":
         items = re.split(r'(?=^\d+[\.\)]\s)', text, flags=re.MULTILINE)
         if len(items) > 1:
@@ -288,7 +284,6 @@ def build_sections_with_images(text: str, analyzed_images: list, mode: str) -> l
                 sections.append({"heading": "", "text": item, "image": image})
             return sections
 
-    # Single block fallback — match one image to whole text
     image = find_best_image_for_section(text, analyzed_images, used_images)
     return [{"heading": "", "text": text, "image": image}]
 
@@ -396,10 +391,27 @@ async def root():
 
 @api_router.post("/upload-pdf")
 async def upload_pdf(file: UploadFile = File(...)):
-    if not file.filename.lower().endswith('.pdf'):
+    # ── Mobile fix: check filename OR content_type (mobile browsers strip extensions) ──
+    filename = file.filename or ""
+    content_type = file.content_type or ""
+
+    is_pdf_by_name = filename.lower().endswith('.pdf')
+    is_pdf_by_type = content_type in [
+        "application/pdf",
+        "application/octet-stream",   # Android Chrome
+        "binary/octet-stream",
+        "application/x-pdf",
+    ]
+
+    if not is_pdf_by_name and not is_pdf_by_type:
         raise HTTPException(status_code=400, detail="Only PDF files are accepted")
 
     content = await file.read()
+
+    # Verify PDF magic bytes (%PDF) — works regardless of filename/MIME
+    if not content.startswith(b'%PDF'):
+        raise HTTPException(status_code=400, detail="File does not appear to be a valid PDF")
+
     text = ""
     pages_count = 0
     images = []

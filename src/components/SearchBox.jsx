@@ -105,6 +105,7 @@ export default function SearchBox({ sourceText, multiSources, onResult, disabled
         const r = res.data.results[0];
         onResult({
           id: res.data.id,
+          session_id: sessionId || res.data.id,
           mode: res.data.mode,
           result: r.result,
           filename: r.filename,

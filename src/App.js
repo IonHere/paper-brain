@@ -264,7 +264,9 @@ function App() {
   // ── Auto-save session when results change ──
   useEffect(() => {
     if (results.length > 0) {
-      const sessionId = currentSessionId || Date.now().toString();
+      // Use the first result's session_id from backend as session ID
+      const firstResult = results[0];
+      const sessionId = currentSessionId || firstResult?.session_id || firstResult?.id || Date.now().toString();
       if (!currentSessionId) setCurrentSessionId(sessionId);
 
       const sessionLabel = sourceInfo?.filename || "New Session";

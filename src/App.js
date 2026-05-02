@@ -3,13 +3,15 @@ import "./App.css";
 import SourceInput from "./components/SourceInput";
 import SearchBox from "./components/SearchBox";
 import ResultDisplay from "./components/ResultDisplay";
-import { Menu, X, Plus, Search, ChevronDown, ChevronUp, ArrowUp, ArrowDown, Clock, Pencil, Trash2, Upload } from "lucide-react";
+import Auth from "./components/Auth";
+import { supabase } from "./lib/supabaseClient";
+import { Menu, X, Plus, Search, ChevronDown, ChevronUp, ArrowUp, ArrowDown, Clock, Pencil, Trash2, Upload, LogOut, User } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import axios from "axios";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
-function Sidebar({ isOpen, onClose, onNewChat, sessions, setSessions, onSelectSession, onSelectPrompt, onDeleteSession }) {
+function Sidebar({ isOpen, onClose, onNewChat, sessions, setSessions, onSelectSession, onSelectPrompt, onDeleteSession, user, onSignOut }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [expandedSession, setExpandedSession] = useState(null);
   const [editingId, setEditingId] = useState(null);
@@ -53,6 +55,31 @@ function Sidebar({ isOpen, onClose, onNewChat, sessions, setSessions, onSelectSe
                 <X className="w-4 h-4" />
               </button>
             </div>
+
+            {/* User info */}
+            {user && (
+              <div className="px-3 py-3 border-b border-white/5">
+                <div className="flex items-center gap-2 px-2 py-1.5">
+                  <div className="w-7 h-7 rounded-full bg-indigo-600/20 border border-indigo-500/20 flex items-center justify-center shrink-0">
+                    {user.user_metadata?.avatar_url
+                      ? <img src={user.user_metadata.avatar_url} className="w-7 h-7 rounded-full object-cover" alt="avatar" />
+                      : <User className="w-3.5 h-3.5 text-indigo-400" />
+                    }
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-medium text-foreground truncate">
+                      {user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split("@")[0]}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground truncate">{user.email}</p>
+                  </div>
+                  <button onClick={onSignOut}
+                    className="p-1.5 rounded-lg hover:bg-white/10 text-muted-foreground hover:text-red-400 transition-colors"
+                    title="Sign out">
+                    <LogOut className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            )}
 
             <div className="px-3 py-3 border-b border-white/5">
               <button
@@ -182,6 +209,13 @@ function Sidebar({ isOpen, onClose, onNewChat, sessions, setSessions, onSelectSe
 }
 
 function App() {
+  const [user, setUser] = useState(null);
+  const [isGuest, setIsGuest] = useState(false);
+  const [guestPromptCount, setGuestPromptCount] = useState(0);
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [showFullAuth, setShowFullAuth] = useState(false);
+  const [authLoading, setAuthLoading] = useState(true);
+
   const [sourceText, setSourceText] = useState("");
   const [sourceInfo, setSourceInfo] = useState(null);
   const [multiSources, setMultiSources] = useState([]);
@@ -197,52 +231,65 @@ function App() {
   const topRef = useRef(null);
   const chatRef = useRef(null);
 
-  // ── Load sessions from Supabase on startup ──
+  // ── Auth state listener ──
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+      setAuthLoading(false);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+      setShowAuthModal(false);
+      setShowFullAuth(false);
+      if (session?.user) {
+        setIsGuest(false);
+        setGuestPromptCount(0);
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  // ── Load history when user logs in ──
+  useEffect(() => {
+    if (user) fetchHistory();
+  }, [user]);
+
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+    setUser(null);
+    setSessions([]);
+    clearResults();
+  };
+
+  const handleGuestMode = () => {
+    setIsGuest(true);
+    setShowFullAuth(false);
+  };
+
   const fetchHistory = async () => {
     try {
-      // Load saved sessions first
       const sessionsRes = await axios.get(`${API}/sessions`);
       const savedSessions = sessionsRes.data || [];
-
-      // Load history items
       const historyRes = await axios.get(`${API}/history`);
       const historyItems = historyRes.data || [];
 
-      // Group history by session_id
       const grouped = {};
       historyItems.forEach(item => {
         const key = item.session_id || `history-${new Date(item.timestamp).toLocaleDateString()}`;
         if (!grouped[key]) {
           const date = new Date(item.timestamp).toLocaleDateString();
-          const name = item.query
-            ? item.query.slice(0, 35)
-            : item.source_preview
-            ? item.source_preview.slice(0, 35)
-            : date;
-          grouped[key] = {
-            id: key,
-            label: name,
-            date: date,
-            prompts: [],
-            full_text: item.full_text || "",
-            filename: item.filename || "",
-          };
+          const name = item.query ? item.query.slice(0, 35) : item.source_preview ? item.source_preview.slice(0, 35) : date;
+          grouped[key] = { id: key, label: name, date, prompts: [], full_text: item.full_text || "", filename: item.filename || "" };
         }
         grouped[key].prompts.push({
-          id: item.id,
-          mode: item.mode,
-          result: item.result,
-          timestamp: item.timestamp,
-          inputQuery: item.query,
-          inputQuestion: item.question,
-          inputAnswer: item.answer,
-          sourceText: item.full_text || "",
-          filename: item.filename || "",
-          sections: null,
+          id: item.id, mode: item.mode, result: item.result, timestamp: item.timestamp,
+          inputQuery: item.query, inputQuestion: item.question, inputAnswer: item.answer,
+          sourceText: item.full_text || "", filename: item.filename || "", sections: null,
         });
       });
 
-      // Merge saved session labels into history groups
       const savedLabelsMap = {};
       savedSessions.forEach(s => { savedLabelsMap[s.session_id] = s; });
 
@@ -259,41 +306,37 @@ function App() {
     }
   };
 
-  useEffect(() => { fetchHistory(); }, []);
-
-  // ── Auto-save session when results change ──
   useEffect(() => {
-    if (results.length > 0) {
-      // Use the first result's session_id from backend as session ID
+    if (results.length > 0 && (user || isGuest)) {
       const firstResult = results[0];
       const sessionId = currentSessionId || firstResult?.session_id || firstResult?.id || Date.now().toString();
       if (!currentSessionId) setCurrentSessionId(sessionId);
-
       const sessionLabel = sourceInfo?.filename || "New Session";
       const sessionDate = new Date().toLocaleDateString();
 
       setSessions(prev => {
         const existing = prev.find(s => s.id === sessionId);
-        if (existing) {
-          return prev.map(s => s.id === sessionId ? { ...s, prompts: results } : s);
-        } else {
-          axios.post(`${API}/sessions`, {
-            id: sessionId, label: sessionLabel, date: sessionDate,
-            full_text: sourceText, filename: sourceInfo?.filename || ""
-          }).catch(err => console.error("Failed to save session", err));
-
-          return [{
-            id: sessionId, label: sessionLabel, date: sessionDate,
-            prompts: results, full_text: sourceText, filename: sourceInfo?.filename || ""
-          }, ...prev];
+        if (existing) return prev.map(s => s.id === sessionId ? { ...s, prompts: results } : s);
+        else {
+          if (user) {
+            axios.post(`${API}/sessions`, { id: sessionId, label: sessionLabel, date: sessionDate, full_text: sourceText, filename: sourceInfo?.filename || "" })
+              .catch(err => console.error("Failed to save session", err));
+          }
+          return [{ id: sessionId, label: sessionLabel, date: sessionDate, prompts: results, full_text: sourceText, filename: sourceInfo?.filename || "" }, ...prev];
         }
       });
     }
   }, [results]);
 
   const handleResult = (result) => {
+    // Guest mode — show auth modal on 2nd query attempt
+    if (isGuest && guestPromptCount >= 1) {
+      setShowAuthModal(true);
+      return;
+    }
     if (!hasStarted) setHasStarted(true);
     setResults((prev) => [...prev, result]);
+    if (isGuest) setGuestPromptCount(prev => prev + 1);
   };
 
   const handleRegenerate = (id, newResult) => {
@@ -303,7 +346,7 @@ function App() {
   const handleDeleteResult = async (id) => {
     setResults(prev => prev.filter(r => r.id !== id));
     try { await axios.delete(`${API}/history/${id}`); }
-    catch (err) { console.error("Failed to delete result", err); }
+    catch (err) { console.error(err); }
   };
 
   const clearResults = () => {
@@ -311,12 +354,10 @@ function App() {
     setSourceInfo(null); setMultiSources([]); setCurrentSessionId(null);
   };
 
-  const handleNewChat = () => clearResults();
-
   const handleDeleteSession = async (sessionId) => {
     setSessions(prev => prev.filter(s => s.id !== sessionId));
     try { await axios.delete(`${API}/sessions/${sessionId}`); }
-    catch (err) { console.error("Failed to delete session", err); }
+    catch (err) { console.error(err); }
   };
 
   const restoreSession = (session) => {
@@ -338,18 +379,14 @@ function App() {
   };
 
   const handleSelectSession = (session) => {
-    setHasStarted(true);
-    setResults(session.prompts);
-    setCurrentSessionId(session.id);
-    restoreSession(session);
+    setHasStarted(true); setResults(session.prompts);
+    setCurrentSessionId(session.id); restoreSession(session);
     setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
   };
 
   const handleSelectPrompt = (session, promptIndex) => {
-    setHasStarted(true);
-    setResults(session.prompts);
-    setCurrentSessionId(session.id);
-    restoreSession(session);
+    setHasStarted(true); setResults(session.prompts);
+    setCurrentSessionId(session.id); restoreSession(session);
     setTimeout(() => {
       const cards = document.querySelectorAll("[data-testid^='result-card-']");
       if (cards[promptIndex]) cards[promptIndex].scrollIntoView({ behavior: "smooth", block: "start" });
@@ -359,10 +396,8 @@ function App() {
   const handleScroll = () => {
     const el = chatRef.current;
     if (!el) return;
-    const atTop = el.scrollTop < 100;
-    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 150;
-    setShowScrollTop(!atTop);
-    setShowScrollBottom(!atBottom);
+    setShowScrollTop(el.scrollTop >= 100);
+    setShowScrollBottom(el.scrollHeight - el.scrollTop - el.clientHeight >= 150);
   };
 
   useEffect(() => {
@@ -380,14 +415,9 @@ function App() {
       for (const file of files) {
         const formData = new FormData();
         formData.append("file", file);
-        const res = await axios.post(`${API}/upload-pdf`, formData, {
-          headers: { "Content-Type": "multipart/form-data" },
-        });
+        const res = await axios.post(`${API}/upload-pdf`, formData, { headers: { "Content-Type": "multipart/form-data" } });
         if (!newSources.find(s => s.filename === res.data.filename)) {
-          newSources.push({
-            filename: res.data.filename, text: res.data.text,
-            pages: res.data.pages, images: res.data.images || []
-          });
+          newSources.push({ filename: res.data.filename, text: res.data.text, pages: res.data.pages, images: res.data.images || [] });
         }
       }
       setMultiSources(newSources);
@@ -396,17 +426,57 @@ function App() {
         filename: newSources.length === 1 ? newSources[0].filename : `${newSources.length} documents`,
         pages: newSources.reduce((a, s) => a + (s.pages || 0), 0)
       });
-    } catch (err) {
-      alert("Failed to upload PDF");
-    } finally {
-      setIsUploading(false);
-      e.target.value = "";
-    }
+    } catch (err) { alert("Failed to upload PDF"); }
+    finally { setIsUploading(false); e.target.value = ""; }
   };
 
   useEffect(() => {
     if (hasStarted) bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [results, hasStarted]);
+
+  // ── Loading state ──
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#050505]">
+        <div className="flex items-center gap-3">
+          <img src="/logo.png" alt="PaperBrain" className="w-10 h-10 object-contain animate-pulse" />
+          <span className="text-foreground font-semibold">PaperBrain</span>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Full auth screen (not logged in, not guest) ──
+  if (!user && !isGuest) {
+    return (
+      <div className="app-bg min-h-screen">
+        <div className="noise-overlay" />
+        <div className="relative z-10 min-h-screen flex flex-col items-center justify-center px-4">
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="w-full max-w-md">
+            <div className="text-center mb-8">
+              <img src="/logo.png" alt="PaperBrain" className="w-16 h-16 object-contain mx-auto mb-4" />
+              <h1 className="text-4xl font-bold text-foreground mb-2">
+                Paper<span className="text-indigo-400">Brain</span>
+              </h1>
+              <p className="text-sm text-muted-foreground">Your private AI document assistant</p>
+            </div>
+
+            <div className="bg-[#0a0a0a] border border-white/10 rounded-2xl p-6">
+              <Auth />
+              <div className="mt-4 pt-4 border-t border-white/5 text-center">
+                <button
+                  onClick={handleGuestMode}
+                  className="text-xs text-muted-foreground hover:text-indigo-400 transition-colors"
+                >
+                  Try as guest <span className="text-muted-foreground/50">(1 free prompt)</span>
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      </div>
+    );
+  }
 
   const HamburgerButton = () => (
     <button onClick={() => setSidebarOpen(true)}
@@ -419,14 +489,34 @@ function App() {
     <div className="app-bg">
       <div className="noise-overlay" />
 
+      {/* Auth modal for guest upgrade */}
+      <AnimatePresence>
+        {showAuthModal && (
+          <Auth isModal={true} onClose={() => setShowAuthModal(false)} />
+        )}
+      </AnimatePresence>
+
       <Sidebar
         isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)}
-        onNewChat={handleNewChat} sessions={sessions} setSessions={setSessions}
+        onNewChat={() => clearResults()} sessions={sessions} setSessions={setSessions}
         onSelectSession={handleSelectSession} onSelectPrompt={handleSelectPrompt}
-        onDeleteSession={handleDeleteSession}
+        onDeleteSession={handleDeleteSession} user={user} onSignOut={handleSignOut}
       />
 
       <div className="fixed top-4 left-4 z-20"><HamburgerButton /></div>
+
+      {/* Guest banner */}
+      {isGuest && (
+        <div className="fixed top-0 left-0 right-0 z-30 bg-indigo-600/20 border-b border-indigo-500/20 px-4 py-2 text-center">
+          <span className="text-xs text-indigo-300">
+            You're in guest mode — {guestPromptCount >= 1 ? "Sign in to continue using PaperBrain" : "1 free prompt remaining"}
+            {" "}
+            <button onClick={() => setShowAuthModal(true)} className="underline hover:text-white transition-colors">
+              Sign in now
+            </button>
+          </span>
+        </div>
+      )}
 
       {hasStarted && (
         <>
@@ -434,7 +524,7 @@ function App() {
             {showScrollTop && (
               <motion.button initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.8 }}
                 onClick={() => chatRef.current?.scrollTo({ top: 0, behavior: "smooth" })}
-                className="fixed right-6 bottom-52 z-30 w-8 h-8 rounded-full bg-indigo-600/20 hover:bg-indigo-600/40 border border-indigo-500/20 flex items-center justify-center text-indigo-400 hover:text-indigo-300 transition-colors">
+                className="fixed right-6 bottom-52 z-30 w-8 h-8 rounded-full bg-indigo-600/20 hover:bg-indigo-600/40 border border-indigo-500/20 flex items-center justify-center text-indigo-400 transition-colors">
                 <ArrowUp className="w-3.5 h-3.5" />
               </motion.button>
             )}
@@ -443,7 +533,7 @@ function App() {
             {showScrollBottom && (
               <motion.button initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.8 }}
                 onClick={() => bottomRef.current?.scrollIntoView({ behavior: "smooth" })}
-                className="fixed right-6 bottom-40 z-30 w-8 h-8 rounded-full bg-indigo-600/20 hover:bg-indigo-600/40 border border-indigo-500/20 flex items-center justify-center text-indigo-400 hover:text-indigo-300 transition-colors">
+                className="fixed right-6 bottom-40 z-30 w-8 h-8 rounded-full bg-indigo-600/20 hover:bg-indigo-600/40 border border-indigo-500/20 flex items-center justify-center text-indigo-400 transition-colors">
                 <ArrowDown className="w-3.5 h-3.5" />
               </motion.button>
             )}
@@ -451,7 +541,7 @@ function App() {
         </>
       )}
 
-      <div className="relative z-10">
+      <div className="relative z-10" style={{ paddingTop: isGuest ? "36px" : "0" }}>
         <AnimatePresence>
           {!hasStarted && (
             <motion.div key="centered" initial={{ opacity: 1 }} exit={{ opacity: 0, y: -20 }} transition={{ duration: 0.4 }}
@@ -460,11 +550,16 @@ function App() {
                 <div className="flex items-center justify-center gap-3 mb-4">
                   <img src="/logo.png" alt="PaperBrain" className="w-16 h-16 object-contain" />
                   <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight text-foreground"
-                    data-testid="app-title" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+                    style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
                     Paper<span className="text-indigo-400">Brain</span>
                   </h1>
                 </div>
-                <p className="text-sm text-muted-foreground max-w-md mx-auto">Your private, offline AI document assistant</p>
+                <p className="text-sm text-muted-foreground max-w-md mx-auto">Your private AI document assistant</p>
+                {user && (
+                  <p className="text-xs text-indigo-400/70 mt-2">
+                    Welcome, {user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split("@")[0]}! 👋
+                  </p>
+                )}
               </motion.div>
 
               <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15, duration: 0.4 }} className="w-full max-w-3xl mb-4">
@@ -493,6 +588,12 @@ function App() {
                   {isUploading ? <span className="loading-pulse">Uploading...</span> : <><Upload className="w-3.5 h-3.5" /><span>{multiSources.length > 0 ? "Add doc" : "Upload doc"}</span></>}
                   <input type="file" accept=".pdf" multiple className="hidden" onChange={handleFileUpload} />
                 </label>
+                {!user && isGuest && (
+                  <button onClick={() => setShowAuthModal(true)}
+                    className="px-3 py-1.5 rounded-lg bg-indigo-600/20 border border-indigo-500/30 text-indigo-400 text-xs hover:bg-indigo-600/40 transition-colors">
+                    Sign in
+                  </button>
+                )}
               </div>
             </motion.header>
 

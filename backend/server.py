@@ -10,27 +10,49 @@ import io
 import uuid
 import re
 import time
+import json
 import unicodedata
 from pathlib import Path
 from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime, timezone
 from collections import defaultdict
+from cryptography.fernet import Fernet
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
 # ─────────────────────────────────────────────
+# AES Encryption helper
+# ─────────────────────────────────────────────
+ENCRYPTION_KEY = os.environ.get('ENCRYPTION_KEY')
+if ENCRYPTION_KEY:
+    fernet = Fernet(ENCRYPTION_KEY.encode())
+else:
+    fernet = None
+    logging.warning("ENCRYPTION_KEY not set – full_text will be stored as plaintext.")
+
+def maybe_encrypt(plain: str) -> str:
+    if not fernet or not plain:
+        return plain
+    return fernet.encrypt(plain.encode()).decode()
+
+def maybe_decrypt(cipher: str) -> str:
+    if not fernet or not cipher:
+        return cipher
+    try:
+        if cipher.startswith("gAAAAA"):
+            return fernet.decrypt(cipher.encode()).decode()
+    except Exception:
+        pass
+    return cipher
+
+# ─────────────────────────────────────────────
 # Input sanitization helper
 # ─────────────────────────────────────────────
 def sanitize_input(text: str, max_length: int = 500) -> str:
-    """
-    Remove dangerous control characters and limit length.
-    Keeps newlines and tabs, strips other ASCII control chars.
-    """
     if not text:
         return text
-    # Remove non-printable characters except newline and tab
     cleaned = ''.join(
         ch for ch in text
         if unicodedata.category(ch)[0] != 'C' or ch in ('\n', '\t')
@@ -40,8 +62,8 @@ def sanitize_input(text: str, max_length: int = 500) -> str:
 # ─────────────────────────────────────────────
 # Rate limiter (in-memory, per IP)
 # ─────────────────────────────────────────────
-RATE_LIMIT_WINDOW = 60          # seconds
-RATE_LIMIT_MAX_REQUESTS = 10    # requests per window
+RATE_LIMIT_WINDOW = 60
+RATE_LIMIT_MAX_REQUESTS = 10
 rate_limit_store = defaultdict(list)
 
 def is_rate_limited(ip: str) -> bool:
@@ -108,13 +130,6 @@ async def sb_upsert(table, data, on_conflict):
         return r.json()
 
 # ─────────────────────────────────────────────
-# Helper: get user_id from request header
-# ─────────────────────────────────────────────
-async def get_user_id(x_user_id: Optional[str] = Header(None, alias="X-User-Id")):
-    """Returns user_id if provided, else None (for guests)"""
-    return x_user_id
-
-# ─────────────────────────────────────────────
 # MAIN MODEL — Groq (Mistral/LLaMA) for text
 # ─────────────────────────────────────────────
 GROQ_API_KEY = os.environ.get('GROQ_API_KEY', '')
@@ -169,7 +184,6 @@ class SessionRequest(BaseModel):
 # MAIN MODEL — Groq text generation
 # ─────────────────────────────────────────────
 async def call_text_model(prompt: str, retries: int = 3) -> str:
-    """Main text model — generates all text responses with retry on rate limit"""
     import asyncio
     headers = {
         "Authorization": f"Bearer {GROQ_API_KEY}",
@@ -189,7 +203,7 @@ async def call_text_model(prompt: str, retries: int = 3) -> str:
                     data = response.json()
                     return data["choices"][0]["message"]["content"]
                 elif response.status_code == 429:
-                    wait_time = (attempt + 1) * 15  # 15s, 30s, 45s
+                    wait_time = (attempt + 1) * 15
                     logging.warning(f"Groq rate limit hit, retrying in {wait_time}s...")
                     await asyncio.sleep(wait_time)
                     continue
@@ -202,7 +216,6 @@ async def call_text_model(prompt: str, retries: int = 3) -> str:
 # SUPPORT MODEL — Gemini Vision
 # ─────────────────────────────────────────────
 async def analyze_image_with_vision_model(image_base64: str, page: int = 0) -> dict:
-    """Support model — reads images, diagrams, handwriting"""
     try:
         payload = {
             "contents": [{
@@ -228,7 +241,6 @@ async def analyze_image_with_vision_model(image_base64: str, page: int = 0) -> d
         return {"page": page, "description": "Image analysis unavailable", "type": "error"}
 
 async def extract_handwritten_text(image_base64: str) -> str:
-    """Support model — OCR for handwritten/scanned PDFs"""
     try:
         payload = {
             "contents": [{
@@ -259,7 +271,6 @@ def extract_keywords(text: str) -> set:
     return set(re.findall(r'\b\w{5,}\b', text.lower()))
 
 def find_best_image_for_section(section_text: str, analyzed_images: list, used_images: set):
-    """Find most relevant unused image for a section. Never reuses same image."""
     if not analyzed_images:
         return None
     section_keywords = extract_keywords(section_text)
@@ -289,12 +300,6 @@ def find_best_image_for_section(section_text: str, analyzed_images: list, used_i
     return None
 
 def build_sections_with_images(text: str, analyzed_images: list, mode: str) -> list:
-    """
-    SUPPORT MODEL logic:
-    Splits main model's text into sections and matches each to a relevant image.
-    Never modifies the text — only adds image references.
-    Adaptive to all modes: answer, summarize, question, evaluate.
-    """
     if not analyzed_images:
         return [{"heading": "", "text": text, "image": None}]
 
@@ -448,8 +453,7 @@ async def upload_pdf(file: UploadFile = File(...)):
 
     content = await file.read()
 
-    # ── File size limit (Vercel free tier max ~4.5MB, we check at 4MB) ──
-    MAX_SIZE = 4 * 1024 * 1024  # 4 MB
+    MAX_SIZE = 4 * 1024 * 1024
     if len(content) > MAX_SIZE:
         raise HTTPException(
             status_code=413,
@@ -517,7 +521,6 @@ async def upload_pdf(file: UploadFile = File(...)):
 
 @api_router.post("/process")
 async def process_text(request: ProcessRequest, user_id: Optional[str] = Header(None, alias="X-User-Id"), req: Request = None):
-    # ── Rate limiting check ──
     if req:
         client_ip = req.client.host if req.client else "unknown"
         if is_rate_limited(client_ip):
@@ -526,7 +529,6 @@ async def process_text(request: ProcessRequest, user_id: Optional[str] = Header(
     if not request.texts:
         raise HTTPException(status_code=400, detail="No text provided")
 
-    # ── Sanitize user inputs ──
     query = sanitize_input(request.query) if request.query else None
     question = sanitize_input(request.question) if request.question else None
     answer = sanitize_input(request.answer) if request.answer else None
@@ -600,18 +602,21 @@ async def process_text(request: ProcessRequest, user_id: Optional[str] = Header(
     timestamp = datetime.now(timezone.utc).isoformat()
     source_preview = request.texts[0]["text"][:200] + "..."
 
+    images_json = json.dumps(analyzed_images) if analyzed_images else None
+
     await sb_insert("history", {
         "id": doc_id,
         "mode": mode,
         "result": str(results),
         "timestamp": timestamp,
         "source_preview": source_preview,
-        "full_text": request.texts[0]["text"][:10000],
+        "full_text": maybe_encrypt(request.texts[0]["text"][:10000]),
         "filename": request.texts[0].get("filename", ""),
         "query": query,
         "question": question,
         "answer": answer,
         "image_count": len(image_descriptions),
+        "images_data": images_json,
         "session_id": request.session_id or doc_id,
         "user_id": user_id
     })
@@ -642,13 +647,11 @@ async def regenerate_response(
     user_id: Optional[str] = Header(None, alias="X-User-Id"),
     req: Request = None
 ):
-    # ── Rate limiting check ──
     if req:
         client_ip = req.client.host if req.client else "unknown"
         if is_rate_limited(client_ip):
             raise HTTPException(status_code=429, detail="Too many requests. Please slow down.")
 
-    # ── Sanitize user inputs ──
     query = sanitize_input(request.query) if request.query else None
     question = sanitize_input(request.question) if request.question else None
 
@@ -693,16 +696,19 @@ Improved response: [/INST]"""
     doc_id = str(uuid.uuid4())
     timestamp = datetime.now(timezone.utc).isoformat()
 
+    images_json = json.dumps(analyzed_images) if analyzed_images else None
+
     await sb_insert("history", {
         "id": doc_id,
         "mode": mode,
         "result": result_text,
         "timestamp": timestamp,
         "source_preview": truncated[:200],
-        "full_text": truncated,
+        "full_text": maybe_encrypt(truncated),
         "filename": request.texts[0].get("filename", "") if request.texts else "",
         "query": query,
         "is_regenerated": True,
+        "images_data": images_json,
         "user_id": user_id
     })
 
@@ -725,6 +731,14 @@ async def get_history(user_id: Optional[str] = Header(None, alias="X-User-Id")):
         rows = [r for r in rows if r.get("user_id") == user_id]
     else:
         rows = [r for r in rows if not r.get("user_id")]
+
+    for r in rows:
+        r["full_text"] = maybe_decrypt(r.get("full_text", ""))
+        if r.get("images_data"):
+            try:
+                r["images_data"] = json.loads(r["images_data"])
+            except Exception:
+                r["images_data"] = None
     return rows
 
 @api_router.delete("/history/{item_id}")
@@ -746,7 +760,7 @@ async def save_session(
         "session_id": request.id,
         "label": request.label,
         "date": request.date,
-        "full_text": request.full_text,
+        "full_text": maybe_encrypt(request.full_text),
         "filename": request.filename,
         "user_id": user_id
     }, on_conflict="session_id")
@@ -761,6 +775,8 @@ async def get_sessions(user_id: Optional[str] = Header(None, alias="X-User-Id"))
         rows = [r for r in rows if r.get("user_id") == user_id]
     else:
         rows = [r for r in rows if not r.get("user_id")]
+    for row in rows:
+        row["full_text"] = maybe_decrypt(row.get("full_text", ""))
     return rows
 
 @api_router.get("/sessions/{session_id}")
@@ -768,7 +784,9 @@ async def get_session_details(session_id: str):
     rows = await sb_select("sessions", filters={"session_id": session_id})
     if not rows:
         raise HTTPException(status_code=404, detail="Session not found")
-    return rows[0]
+    row = rows[0]
+    row["full_text"] = maybe_decrypt(row.get("full_text", ""))
+    return row
 
 @api_router.delete("/sessions/{session_id}")
 async def delete_session(session_id: str):

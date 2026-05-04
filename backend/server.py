@@ -265,14 +265,42 @@ async def extract_handwritten_text(image_base64: str) -> str:
         return ""
 
 # ─────────────────────────────────────────────
-# SUPPORT MODEL — Section-image matching logic
+# Image matching logic — smarter relevance
 # ─────────────────────────────────────────────
-def extract_keywords(text: str) -> set:
-    return set(re.findall(r'\b\w{5,}\b', text.lower()))
 
-def find_best_image_for_section(section_text: str, analyzed_images: list, used_images: set):
+# Keywords that indicate the user is explicitly asking about a visual
+VISUAL_INTENT_WORDS = {
+    "diagram", "figure", "chart", "graph", "image", "picture", "illustration",
+    "table", "schematic", "drawing", "show", "depicted", "shown", "visual",
+    "architecture", "block", "circuit", "plot", "map", "layout"
+}
+
+def query_requests_visual(query: str) -> bool:
+    """Check if the user's query is explicitly asking about a diagram or image."""
+    if not query:
+        return False
+    words = set(re.findall(r'\b\w+\b', query.lower()))
+    return bool(words & VISUAL_INTENT_WORDS)
+
+def extract_keywords(text: str) -> set:
+    # Extract meaningful words — longer than 4 chars, exclude common stopwords
+    stopwords = {
+        "with", "this", "that", "from", "have", "which", "they", "will",
+        "been", "their", "there", "when", "also", "each", "about", "into",
+        "more", "other", "some", "such", "than", "then", "these", "only",
+        "used", "using", "uses", "show", "shows", "shown", "shows", "both"
+    }
+    words = set(re.findall(r'\b\w{5,}\b', text.lower()))
+    return words - stopwords
+
+def find_best_image_for_section(section_text: str, analyzed_images: list, used_images: set, query: str = ""):
     if not analyzed_images:
         return None
+
+    # If query explicitly asks for a visual, lower the threshold slightly
+    # but still require meaningful overlap
+    visual_query = query_requests_visual(query)
+
     section_keywords = extract_keywords(section_text)
     if not section_keywords:
         return None
@@ -286,10 +314,21 @@ def find_best_image_for_section(section_text: str, analyzed_images: list, used_i
         desc = img.get("description", "")
         if not desc or img.get("type") == "error":
             continue
+
         desc_keywords = extract_keywords(desc)
         overlap = len(section_keywords & desc_keywords)
-        score = overlap / max(len(desc_keywords), 1)
-        if overlap >= 2 and score > 0.04 and score > best_score:
+
+        # Score = overlap relative to section size (how much of the section is covered)
+        score = overlap / max(len(section_keywords), 1)
+
+        # Tighter thresholds to avoid irrelevant matches:
+        # - Require at least 4 overlapping keywords (was 2)
+        # - Require score > 0.15 (was 0.04) — 15% of section keywords must match
+        # - If user explicitly asked for a visual, slightly lower bar to 3 keywords / 0.10
+        min_overlap = 3 if visual_query else 4
+        min_score = 0.10 if visual_query else 0.15
+
+        if overlap >= min_overlap and score > min_score and score > best_score:
             best_score = score
             best_image = (i, img)
 
@@ -299,7 +338,8 @@ def find_best_image_for_section(section_text: str, analyzed_images: list, used_i
         return {"page": img_data["page"], "data": img_data["data"]}
     return None
 
-def build_sections_with_images(text: str, analyzed_images: list, mode: str) -> list:
+
+def build_sections_with_images(text: str, analyzed_images: list, mode: str, query: str = "") -> list:
     if not analyzed_images:
         return [{"heading": "", "text": text, "image": None}]
 
@@ -317,7 +357,7 @@ def build_sections_with_images(text: str, analyzed_images: list, mode: str) -> l
             heading = lines[0].lstrip('#').strip() if lines[0].startswith('#') else ""
             body = lines[1].strip() if len(lines) > 1 else lines[0].strip()
             search_text = f"{heading} {body}"
-            image = find_best_image_for_section(search_text, analyzed_images, used_images)
+            image = find_best_image_for_section(search_text, analyzed_images, used_images, query)
             sections.append({"heading": heading, "text": body, "image": image})
         return sections
 
@@ -328,11 +368,11 @@ def build_sections_with_images(text: str, analyzed_images: list, mode: str) -> l
                 item = item.strip()
                 if not item:
                     continue
-                image = find_best_image_for_section(item, analyzed_images, used_images)
+                image = find_best_image_for_section(item, analyzed_images, used_images, query)
                 sections.append({"heading": "", "text": item, "image": image})
             return sections
 
-    image = find_best_image_for_section(text, analyzed_images, used_images)
+    image = find_best_image_for_section(text, analyzed_images, used_images, query)
     return [{"heading": "", "text": text, "image": image}]
 
 # ─────────────────────────────────────────────
@@ -590,7 +630,8 @@ async def process_text(request: ProcessRequest, user_id: Optional[str] = Header(
 
     sectioned_results = []
     for r in results:
-        sections = build_sections_with_images(r["result"], analyzed_images, mode)
+        # Pass query into section builder so visual intent is detected
+        sections = build_sections_with_images(r["result"], analyzed_images, mode, query or "")
         sectioned_results.append({
             "filename": r.get("filename", "Document"),
             "result": r["result"],
@@ -693,7 +734,7 @@ Question: {query}
 Improved response: [/INST]"""
 
     result_text = await call_text_model(prompt)
-    sections = build_sections_with_images(result_text, analyzed_images, mode)
+    sections = build_sections_with_images(result_text, analyzed_images, mode, query or "")
 
     doc_id = str(uuid.uuid4())
     timestamp = datetime.now(timezone.utc).isoformat()

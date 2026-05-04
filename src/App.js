@@ -607,7 +607,8 @@ function App() {
 
             <div ref={chatRef} onScroll={handleScroll} className="overflow-y-auto px-4 sm:px-6 py-6 pb-64 absolute inset-0 top-[52px] bottom-0">
               <div ref={topRef} />
-              <div className="max-w-3xl mx-auto space-y-4">
+              {/* ── Wider result container ── */}
+              <div className="max-w-5xl mx-auto space-y-4">
                 <ResultDisplay results={results} onClear={clearResults} sourceText={sourceText} multiSources={multiSources} onRegenerate={handleRegenerate} onDelete={handleDeleteResult} />
                 <div ref={bottomRef} />
               </div>

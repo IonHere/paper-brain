@@ -409,7 +409,17 @@ async def upload_pdf(file: UploadFile = File(...)):
     ]
     if not is_pdf_by_name and not is_pdf_by_type:
         raise HTTPException(status_code=400, detail="Only PDF files are accepted")
+
     content = await file.read()
+
+    # ── NEW: File size limit (Vercel free tier max ~4.5MB, we check at 4MB) ──
+    MAX_SIZE = 4 * 1024 * 1024  # 4 MB
+    if len(content) > MAX_SIZE:
+        raise HTTPException(
+            status_code=413,
+            detail="File too large. Maximum allowed size is 4 MB. Please compress or split the PDF."
+        )
+
     if not content.startswith(b'%PDF'):
         raise HTTPException(status_code=400, detail="File does not appear to be a valid PDF")
 

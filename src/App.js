@@ -296,6 +296,11 @@ function App() {
         });
       });
 
+      // ── REVERSE prompts so oldest shows first (chat order) ──
+      Object.keys(grouped).forEach(key => {
+        grouped[key].prompts.reverse();
+      });
+
       const savedLabelsMap = {};
       savedSessions.forEach(s => { savedLabelsMap[s.session_id] = s; });
 
@@ -387,14 +392,18 @@ function App() {
   };
 
   const handleSelectSession = (session) => {
-    setHasStarted(true); setResults(session.prompts);
-    setCurrentSessionId(session.id); restoreSession(session);
+    setHasStarted(true);
+    setResults(session.prompts);
+    setCurrentSessionId(session.id);
+    restoreSession(session);
     setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
   };
 
   const handleSelectPrompt = (session, promptIndex) => {
-    setHasStarted(true); setResults(session.prompts);
-    setCurrentSessionId(session.id); restoreSession(session);
+    setHasStarted(true);
+    setResults(session.prompts);
+    setCurrentSessionId(session.id);
+    restoreSession(session);
     setTimeout(() => {
       const cards = document.querySelectorAll("[data-testid^='result-card-']");
       if (cards[promptIndex]) cards[promptIndex].scrollIntoView({ behavior: "smooth", block: "start" });

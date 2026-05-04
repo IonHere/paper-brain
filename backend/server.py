@@ -10,6 +10,7 @@ import io
 import uuid
 import re
 import time
+import unicodedata
 from pathlib import Path
 from pydantic import BaseModel
 from typing import Optional, List
@@ -20,17 +21,32 @@ ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
 # ─────────────────────────────────────────────
+# Input sanitization helper
+# ─────────────────────────────────────────────
+def sanitize_input(text: str, max_length: int = 500) -> str:
+    """
+    Remove dangerous control characters and limit length.
+    Keeps newlines and tabs, strips other ASCII control chars.
+    """
+    if not text:
+        return text
+    # Remove non-printable characters except newline and tab
+    cleaned = ''.join(
+        ch for ch in text
+        if unicodedata.category(ch)[0] != 'C' or ch in ('\n', '\t')
+    )
+    return cleaned[:max_length]
+
+# ─────────────────────────────────────────────
 # Rate limiter (in-memory, per IP)
 # ─────────────────────────────────────────────
 RATE_LIMIT_WINDOW = 60          # seconds
 RATE_LIMIT_MAX_REQUESTS = 10    # requests per window
-rate_limit_store = defaultdict(list)   # IP -> list of timestamps
+rate_limit_store = defaultdict(list)
 
 def is_rate_limited(ip: str) -> bool:
-    """Remove old entries and check if too many requests within window."""
     now = time.time()
     window_start = now - RATE_LIMIT_WINDOW
-    # Keep only timestamps within the window
     rate_limit_store[ip] = [t for t in rate_limit_store[ip] if t > window_start]
     if len(rate_limit_store[ip]) >= RATE_LIMIT_MAX_REQUESTS:
         return True
@@ -510,13 +526,18 @@ async def process_text(request: ProcessRequest, user_id: Optional[str] = Header(
     if not request.texts:
         raise HTTPException(status_code=400, detail="No text provided")
 
+    # ── Sanitize user inputs ──
+    query = sanitize_input(request.query) if request.query else None
+    question = sanitize_input(request.question) if request.question else None
+    answer = sanitize_input(request.answer) if request.answer else None
+
     mode = request.mode
     num_questions = 5
     results = []
     image_descriptions = []
 
-    if request.query:
-        detected_mode, detected_num = detect_intent(request.query)
+    if query:
+        detected_mode, detected_num = detect_intent(query)
         if request.mode == "auto":
             mode = detected_mode
         if detected_num:
@@ -539,16 +560,16 @@ async def process_text(request: ProcessRequest, user_id: Optional[str] = Header(
 
     if len(request.texts) == 1:
         t = request.texts[0]
-        prompt = build_prompt(mode, t["text"], t.get("filename", ""), request.query,
-                              request.question, request.answer, num_questions,
+        prompt = build_prompt(mode, t["text"], t.get("filename", ""), query,
+                              question, answer, num_questions,
                               request.history, image_descriptions)
         result_text = await call_text_model(prompt)
         results.append({"filename": t.get("filename", "Document"), "result": result_text})
     else:
         if mode in ["summarize", "question"]:
             for t in request.texts:
-                prompt = build_prompt(mode, t["text"], t.get("filename", ""), request.query,
-                                      request.question, request.answer, num_questions,
+                prompt = build_prompt(mode, t["text"], t.get("filename", ""), query,
+                                      question, answer, num_questions,
                                       request.history, image_descriptions)
                 result_text = await call_text_model(prompt)
                 results.append({"filename": t.get("filename", "Document"), "result": result_text})
@@ -560,8 +581,8 @@ async def process_text(request: ProcessRequest, user_id: Optional[str] = Header(
                 results.append({"filename": "Combined Summary", "result": combined_result, "is_combined": True})
         else:
             combined_text = "\n\n".join([f"From {t.get('filename','Doc')}: {t['text'][:2000]}" for t in request.texts])
-            prompt = build_prompt(mode, combined_text, "all", request.query, request.question,
-                                  request.answer, num_questions, request.history, image_descriptions)
+            prompt = build_prompt(mode, combined_text, "all", query, question,
+                                  answer, num_questions, request.history, image_descriptions)
             result_text = await call_text_model(prompt)
             results.append({"filename": "All Documents", "result": result_text})
 
@@ -587,9 +608,9 @@ async def process_text(request: ProcessRequest, user_id: Optional[str] = Header(
         "source_preview": source_preview,
         "full_text": request.texts[0]["text"][:10000],
         "filename": request.texts[0].get("filename", ""),
-        "query": request.query,
-        "question": request.question,
-        "answer": request.answer,
+        "query": query,
+        "question": question,
+        "answer": answer,
         "image_count": len(image_descriptions),
         "session_id": request.session_id or doc_id,
         "user_id": user_id
@@ -627,9 +648,13 @@ async def regenerate_response(
         if is_rate_limited(client_ip):
             raise HTTPException(status_code=429, detail="Too many requests. Please slow down.")
 
+    # ── Sanitize user inputs ──
+    query = sanitize_input(request.query) if request.query else None
+    question = sanitize_input(request.question) if request.question else None
+
     mode = request.mode
-    if request.query:
-        detected_mode, _ = detect_intent(request.query)
+    if query:
+        detected_mode, _ = detect_intent(query)
         if request.mode == "auto":
             mode = detected_mode
 
@@ -651,14 +676,14 @@ async def regenerate_response(
 
     feedback_instruction = ""
     if request.feedback_comment:
-        feedback_instruction = f"\nUser feedback: {request.feedback_comment}\nFollow this strictly.\n"
+        feedback_instruction = f"\nUser feedback: {sanitize_input(request.feedback_comment)}\nFollow this strictly.\n"
 
     prompt = f"""[INST] {feedback_instruction}
 Improve this response based on feedback. Use ## headings for sections. Do NOT change factual content.
 
 Text: {truncated}
 Original response: {request.previous_response}
-Question: {request.query}
+Question: {query}
 
 Improved response: [/INST]"""
 
@@ -676,7 +701,7 @@ Improved response: [/INST]"""
         "source_preview": truncated[:200],
         "full_text": truncated,
         "filename": request.texts[0].get("filename", "") if request.texts else "",
-        "query": request.query,
+        "query": query,
         "is_regenerated": True,
         "user_id": user_id
     })

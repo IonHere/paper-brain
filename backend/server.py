@@ -602,6 +602,7 @@ async def process_text(request: ProcessRequest, user_id: Optional[str] = Header(
     timestamp = datetime.now(timezone.utc).isoformat()
     source_preview = request.texts[0]["text"][:200] + "..."
 
+    sections_json = json.dumps(sectioned_results) if sectioned_results else None
     images_json = json.dumps(analyzed_images) if analyzed_images else None
 
     await sb_insert("history", {
@@ -617,6 +618,7 @@ async def process_text(request: ProcessRequest, user_id: Optional[str] = Header(
         "answer": answer,
         "image_count": len(image_descriptions),
         "images_data": images_json,
+        "sections_data": sections_json,
         "session_id": request.session_id or doc_id,
         "user_id": user_id
     })
@@ -696,6 +698,7 @@ Improved response: [/INST]"""
     doc_id = str(uuid.uuid4())
     timestamp = datetime.now(timezone.utc).isoformat()
 
+    sections_json = json.dumps(sections) if sections else None
     images_json = json.dumps(analyzed_images) if analyzed_images else None
 
     await sb_insert("history", {
@@ -709,6 +712,7 @@ Improved response: [/INST]"""
         "query": query,
         "is_regenerated": True,
         "images_data": images_json,
+        "sections_data": sections_json,
         "user_id": user_id
     })
 
@@ -739,6 +743,11 @@ async def get_history(user_id: Optional[str] = Header(None, alias="X-User-Id")):
                 r["images_data"] = json.loads(r["images_data"])
             except Exception:
                 r["images_data"] = None
+        if r.get("sections_data"):
+            try:
+                r["sections_data"] = json.loads(r["sections_data"])
+            except Exception:
+                r["sections_data"] = None
     return rows
 
 @api_router.delete("/history/{item_id}")

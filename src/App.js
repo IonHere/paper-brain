@@ -292,8 +292,9 @@ function App() {
         grouped[key].prompts.push({
           id: item.id, mode: item.mode, result: item.result, timestamp: item.timestamp,
           inputQuery: item.query, inputQuestion: item.question, inputAnswer: item.answer,
-          sourceText: item.full_text || "", filename: item.filename || "", sections: null,
-        });
+          sourceText: item.full_text || "", filename: item.filename || "", 
+          sections: item.sections_data || null,
+      });
       });
 
       // ── REVERSE prompts so oldest shows first (chat order) ──

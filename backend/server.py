@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, UploadFile, File, HTTPException, Header
+from fastapi import FastAPI, APIRouter, UploadFile, File, HTTPException, Header, Request
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 import os
@@ -9,13 +9,33 @@ import base64
 import io
 import uuid
 import re
+import time
 from pathlib import Path
 from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime, timezone
+from collections import defaultdict
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
+
+# ─────────────────────────────────────────────
+# Rate limiter (in-memory, per IP)
+# ─────────────────────────────────────────────
+RATE_LIMIT_WINDOW = 60          # seconds
+RATE_LIMIT_MAX_REQUESTS = 10    # requests per window
+rate_limit_store = defaultdict(list)   # IP -> list of timestamps
+
+def is_rate_limited(ip: str) -> bool:
+    """Remove old entries and check if too many requests within window."""
+    now = time.time()
+    window_start = now - RATE_LIMIT_WINDOW
+    # Keep only timestamps within the window
+    rate_limit_store[ip] = [t for t in rate_limit_store[ip] if t > window_start]
+    if len(rate_limit_store[ip]) >= RATE_LIMIT_MAX_REQUESTS:
+        return True
+    rate_limit_store[ip].append(now)
+    return False
 
 # ─────────────────────────────────────────────
 # Supabase REST API
@@ -412,7 +432,7 @@ async def upload_pdf(file: UploadFile = File(...)):
 
     content = await file.read()
 
-    # ── NEW: File size limit (Vercel free tier max ~4.5MB, we check at 4MB) ──
+    # ── File size limit (Vercel free tier max ~4.5MB, we check at 4MB) ──
     MAX_SIZE = 4 * 1024 * 1024  # 4 MB
     if len(content) > MAX_SIZE:
         raise HTTPException(
@@ -480,7 +500,13 @@ async def upload_pdf(file: UploadFile = File(...)):
     }
 
 @api_router.post("/process")
-async def process_text(request: ProcessRequest, user_id: Optional[str] = Header(None, alias="X-User-Id")):
+async def process_text(request: ProcessRequest, user_id: Optional[str] = Header(None, alias="X-User-Id"), req: Request = None):
+    # ── Rate limiting check ──
+    if req:
+        client_ip = req.client.host if req.client else "unknown"
+        if is_rate_limited(client_ip):
+            raise HTTPException(status_code=429, detail="Too many requests. Please slow down.")
+
     if not request.texts:
         raise HTTPException(status_code=400, detail="No text provided")
 
@@ -566,7 +592,7 @@ async def process_text(request: ProcessRequest, user_id: Optional[str] = Header(
         "answer": request.answer,
         "image_count": len(image_descriptions),
         "session_id": request.session_id or doc_id,
-        "user_id": user_id   # <── attach user_id if provided
+        "user_id": user_id
     })
 
     return {
@@ -592,8 +618,15 @@ async def get_preferences():
 @api_router.post("/regenerate")
 async def regenerate_response(
     request: RegenerateRequest,
-    user_id: Optional[str] = Header(None, alias="X-User-Id")
+    user_id: Optional[str] = Header(None, alias="X-User-Id"),
+    req: Request = None
 ):
+    # ── Rate limiting check ──
+    if req:
+        client_ip = req.client.host if req.client else "unknown"
+        if is_rate_limited(client_ip):
+            raise HTTPException(status_code=429, detail="Too many requests. Please slow down.")
+
     mode = request.mode
     if request.query:
         detected_mode, _ = detect_intent(request.query)
@@ -645,7 +678,7 @@ Improved response: [/INST]"""
         "filename": request.texts[0].get("filename", "") if request.texts else "",
         "query": request.query,
         "is_regenerated": True,
-        "user_id": user_id   # <── attach user_id
+        "user_id": user_id
     })
 
     return {
@@ -663,11 +696,9 @@ async def get_history(user_id: Optional[str] = Header(None, alias="X-User-Id")):
     rows = await sb_select("history", order="timestamp", limit=50)
     if not rows:
         return []
-    # Filter by user_id if header is present, else return all (guest fallback, but typically guests won't have X-User-Id)
     if user_id:
         rows = [r for r in rows if r.get("user_id") == user_id]
     else:
-        # Guest: return only records without user_id (NULL/None)
         rows = [r for r in rows if not r.get("user_id")]
     return rows
 
@@ -692,7 +723,7 @@ async def save_session(
         "date": request.date,
         "full_text": request.full_text,
         "filename": request.filename,
-        "user_id": user_id   # <── attach user_id
+        "user_id": user_id
     }, on_conflict="session_id")
     return {"message": "Session saved"}
 

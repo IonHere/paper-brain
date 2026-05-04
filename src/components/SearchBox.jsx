@@ -18,7 +18,7 @@ const MODES = [
   { value: "auto", label: "Chat", icon: MessageCircle, desc: "Type your own prompt freely" },
 ];
 
-export default function SearchBox({ sourceText, multiSources, onResult, disabled, results, sessionId }) {
+export default function SearchBox({ sourceText, multiSources, onResult, disabled, results, sessionId, userId }) {
   const [mode, setMode] = useState("summarize");
   const [query, setQuery] = useState("");
   const [evalQuestion, setEvalQuestion] = useState("");
@@ -81,7 +81,12 @@ export default function SearchBox({ sourceText, multiSources, onResult, disabled
         images: multiSources?.flatMap(s => s.images || []) || [],
       };
 
-      const res = await axios.post(`${API}/process`, payload);
+      const headers = {};
+      if (userId) {
+        headers["X-User-Id"] = userId;
+      }
+
+      const res = await axios.post(`${API}/process`, payload, { headers });
       const analyzedImages = res.data.analyzed_images || [];
 
       if (res.data.results && res.data.results.length > 1) {

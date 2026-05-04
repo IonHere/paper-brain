@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, UploadFile, File, HTTPException
+from fastapi import FastAPI, APIRouter, UploadFile, File, HTTPException, Header
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 import os
@@ -70,6 +70,13 @@ async def sb_upsert(table, data, on_conflict):
     async with httpx.AsyncClient(timeout=10.0) as client:
         r = await client.post(url, headers=headers, json=data)
         return r.json()
+
+# ─────────────────────────────────────────────
+# Helper: get user_id from request header
+# ─────────────────────────────────────────────
+async def get_user_id(x_user_id: Optional[str] = Header(None, alias="X-User-Id")):
+    """Returns user_id if provided, else None (for guests)"""
+    return x_user_id
 
 # ─────────────────────────────────────────────
 # MAIN MODEL — Groq (Mistral/LLaMA) for text
@@ -391,24 +398,18 @@ async def root():
 
 @api_router.post("/upload-pdf")
 async def upload_pdf(file: UploadFile = File(...)):
-    # ── Mobile fix: check filename OR content_type (mobile browsers strip extensions) ──
     filename = file.filename or ""
     content_type = file.content_type or ""
-
     is_pdf_by_name = filename.lower().endswith('.pdf')
     is_pdf_by_type = content_type in [
         "application/pdf",
-        "application/octet-stream",   # Android Chrome
+        "application/octet-stream",
         "binary/octet-stream",
         "application/x-pdf",
     ]
-
     if not is_pdf_by_name and not is_pdf_by_type:
         raise HTTPException(status_code=400, detail="Only PDF files are accepted")
-
     content = await file.read()
-
-    # Verify PDF magic bytes (%PDF) — works regardless of filename/MIME
     if not content.startswith(b'%PDF'):
         raise HTTPException(status_code=400, detail="File does not appear to be a valid PDF")
 
@@ -416,7 +417,6 @@ async def upload_pdf(file: UploadFile = File(...)):
     pages_count = 0
     images = []
     is_scanned = False
-
     try:
         with pdfplumber.open(io.BytesIO(content)) as pdf:
             pages_count = len(pdf.pages)
@@ -444,15 +444,11 @@ async def upload_pdf(file: UploadFile = File(...)):
                                        "width": round(width), "height": round(height)})
                     except Exception:
                         continue
-
-            # Detect scanned/handwritten PDF
             if len(total_text.strip()) < 100 and len(images) > 0:
                 is_scanned = True
-
     except Exception:
         raise HTTPException(status_code=400, detail="Failed to parse PDF")
 
-    # Handwritten PDF: Gemini reads images → extracts text → passes to main model
     if is_scanned and images:
         extracted_texts = []
         for img in images[:10]:
@@ -474,7 +470,7 @@ async def upload_pdf(file: UploadFile = File(...)):
     }
 
 @api_router.post("/process")
-async def process_text(request: ProcessRequest):
+async def process_text(request: ProcessRequest, user_id: Optional[str] = Header(None, alias="X-User-Id")):
     if not request.texts:
         raise HTTPException(status_code=400, detail="No text provided")
 
@@ -490,7 +486,6 @@ async def process_text(request: ProcessRequest):
         if detected_num:
             num_questions = detected_num
 
-    # ── SUPPORT MODEL STEP 1: Gemini analyzes all images ──
     analyzed_images = []
     if request.images:
         for img in request.images[:8]:
@@ -506,7 +501,6 @@ async def process_text(request: ProcessRequest):
             except Exception as e:
                 logging.error(f"Image analysis error: {e}")
 
-    # ── MAIN MODEL: Groq generates all text ──
     if len(request.texts) == 1:
         t = request.texts[0]
         prompt = build_prompt(mode, t["text"], t.get("filename", ""), request.query,
@@ -535,7 +529,6 @@ async def process_text(request: ProcessRequest):
             result_text = await call_text_model(prompt)
             results.append({"filename": "All Documents", "result": result_text})
 
-    # ── SUPPORT MODEL STEP 2: Gemini matches images to each section ──
     sectioned_results = []
     for r in results:
         sections = build_sections_with_images(r["result"], analyzed_images, mode)
@@ -551,13 +544,19 @@ async def process_text(request: ProcessRequest):
     source_preview = request.texts[0]["text"][:200] + "..."
 
     await sb_insert("history", {
-        "id": doc_id, "mode": mode, "result": str(results),
-        "timestamp": timestamp, "source_preview": source_preview,
+        "id": doc_id,
+        "mode": mode,
+        "result": str(results),
+        "timestamp": timestamp,
+        "source_preview": source_preview,
         "full_text": request.texts[0]["text"][:10000],
         "filename": request.texts[0].get("filename", ""),
-        "query": request.query, "question": request.question,
-        "answer": request.answer, "image_count": len(image_descriptions),
-        "session_id": request.session_id or doc_id
+        "query": request.query,
+        "question": request.question,
+        "answer": request.answer,
+        "image_count": len(image_descriptions),
+        "session_id": request.session_id or doc_id,
+        "user_id": user_id   # <── attach user_id if provided
     })
 
     return {
@@ -581,7 +580,10 @@ async def get_preferences():
     return {}
 
 @api_router.post("/regenerate")
-async def regenerate_response(request: RegenerateRequest):
+async def regenerate_response(
+    request: RegenerateRequest,
+    user_id: Optional[str] = Header(None, alias="X-User-Id")
+):
     mode = request.mode
     if request.query:
         detected_mode, _ = detect_intent(request.query)
@@ -624,15 +626,21 @@ Improved response: [/INST]"""
     timestamp = datetime.now(timezone.utc).isoformat()
 
     await sb_insert("history", {
-        "id": doc_id, "mode": mode, "result": result_text,
-        "timestamp": timestamp, "source_preview": truncated[:200],
+        "id": doc_id,
+        "mode": mode,
+        "result": result_text,
+        "timestamp": timestamp,
+        "source_preview": truncated[:200],
         "full_text": truncated,
         "filename": request.texts[0].get("filename", "") if request.texts else "",
-        "query": request.query, "is_regenerated": True
+        "query": request.query,
+        "is_regenerated": True,
+        "user_id": user_id   # <── attach user_id
     })
 
     return {
-        "id": doc_id, "mode": mode,
+        "id": doc_id,
+        "mode": mode,
         "result": result_text,
         "sections": sections,
         "analyzed_images": analyzed_images,
@@ -641,9 +649,17 @@ Improved response: [/INST]"""
     }
 
 @api_router.get("/history")
-async def get_history():
+async def get_history(user_id: Optional[str] = Header(None, alias="X-User-Id")):
     rows = await sb_select("history", order="timestamp", limit=50)
-    return rows if isinstance(rows, list) else []
+    if not rows:
+        return []
+    # Filter by user_id if header is present, else return all (guest fallback, but typically guests won't have X-User-Id)
+    if user_id:
+        rows = [r for r in rows if r.get("user_id") == user_id]
+    else:
+        # Guest: return only records without user_id (NULL/None)
+        rows = [r for r in rows if not r.get("user_id")]
+    return rows
 
 @api_router.delete("/history/{item_id}")
 async def delete_history_item(item_id: str):
@@ -656,18 +672,30 @@ async def clear_history():
     return {"message": "History cleared"}
 
 @api_router.post("/sessions")
-async def save_session(request: SessionRequest):
+async def save_session(
+    request: SessionRequest,
+    user_id: Optional[str] = Header(None, alias="X-User-Id")
+):
     await sb_upsert("sessions", {
-        "session_id": request.id, "label": request.label,
-        "date": request.date, "full_text": request.full_text,
-        "filename": request.filename
+        "session_id": request.id,
+        "label": request.label,
+        "date": request.date,
+        "full_text": request.full_text,
+        "filename": request.filename,
+        "user_id": user_id   # <── attach user_id
     }, on_conflict="session_id")
     return {"message": "Session saved"}
 
 @api_router.get("/sessions")
-async def get_sessions():
+async def get_sessions(user_id: Optional[str] = Header(None, alias="X-User-Id")):
     rows = await sb_select("sessions", order="date", limit=100)
-    return rows if isinstance(rows, list) else []
+    if not rows:
+        return []
+    if user_id:
+        rows = [r for r in rows if r.get("user_id") == user_id]
+    else:
+        rows = [r for r in rows if not r.get("user_id")]
+    return rows
 
 @api_router.get("/sessions/{session_id}")
 async def get_session_details(session_id: str):

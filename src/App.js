@@ -24,6 +24,8 @@ function Sidebar({ isOpen, onClose, onNewChat, sessions, setSessions, onSelectSe
     ) || s.label.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+  const authHeaders = user ? { "X-User-Id": user.id } : {};
+
   return (
     <>
       <AnimatePresence>
@@ -126,7 +128,7 @@ function Sidebar({ isOpen, onClose, onNewChat, sessions, setSessions, onSelectSe
                                 setSessions(prev => prev.map(s => s.id === session.id ? { ...s, label: editLabel } : s));
                                 setEditingId(null);
                                 try {
-                                  await axios.post(`${API}/sessions`, { id: session.id, label: editLabel, date: session.date, full_text: session.full_text, filename: session.filename });
+                                  await axios.post(`${API}/sessions`, { id: session.id, label: editLabel, date: session.date, full_text: session.full_text, filename: session.filename }, { headers: authHeaders });
                                 } catch (err) { console.error(err); }
                               }}
                               onKeyDown={async (e) => {
@@ -134,7 +136,7 @@ function Sidebar({ isOpen, onClose, onNewChat, sessions, setSessions, onSelectSe
                                   setSessions(prev => prev.map(s => s.id === session.id ? { ...s, label: editLabel } : s));
                                   setEditingId(null);
                                   try {
-                                    await axios.post(`${API}/sessions`, { id: session.id, label: editLabel, date: session.date, full_text: session.full_text, filename: session.filename });
+                                    await axios.post(`${API}/sessions`, { id: session.id, label: editLabel, date: session.date, full_text: session.full_text, filename: session.filename }, { headers: authHeaders });
                                   } catch (err) { console.error(err); }
                                 }
                               }}
@@ -231,6 +233,9 @@ function App() {
   const topRef = useRef(null);
   const chatRef = useRef(null);
 
+  // Helper to get auth headers for backend calls
+  const getAuthHeaders = () => user ? { "X-User-Id": user.id } : {};
+
   // ── Auth state listener ──
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -270,9 +275,10 @@ function App() {
 
   const fetchHistory = async () => {
     try {
-      const sessionsRes = await axios.get(`${API}/sessions`);
+      const headers = getAuthHeaders();
+      const sessionsRes = await axios.get(`${API}/sessions`, { headers });
       const savedSessions = sessionsRes.data || [];
-      const historyRes = await axios.get(`${API}/history`);
+      const historyRes = await axios.get(`${API}/history`, { headers });
       const historyItems = historyRes.data || [];
 
       const grouped = {};
@@ -319,7 +325,7 @@ function App() {
         if (existing) return prev.map(s => s.id === sessionId ? { ...s, prompts: results } : s);
         else {
           if (user) {
-            axios.post(`${API}/sessions`, { id: sessionId, label: sessionLabel, date: sessionDate, full_text: sourceText, filename: sourceInfo?.filename || "" })
+            axios.post(`${API}/sessions`, { id: sessionId, label: sessionLabel, date: sessionDate, full_text: sourceText, filename: sourceInfo?.filename || "" }, { headers: getAuthHeaders() })
               .catch(err => console.error("Failed to save session", err));
           }
           return [{ id: sessionId, label: sessionLabel, date: sessionDate, prompts: results, full_text: sourceText, filename: sourceInfo?.filename || "" }, ...prev];
@@ -345,8 +351,9 @@ function App() {
 
   const handleDeleteResult = async (id) => {
     setResults(prev => prev.filter(r => r.id !== id));
-    try { await axios.delete(`${API}/history/${id}`); }
-    catch (err) { console.error(err); }
+    try {
+      await axios.delete(`${API}/history/${id}`, { headers: getAuthHeaders() });
+    } catch (err) { console.error(err); }
   };
 
   const clearResults = () => {
@@ -356,8 +363,9 @@ function App() {
 
   const handleDeleteSession = async (sessionId) => {
     setSessions(prev => prev.filter(s => s.id !== sessionId));
-    try { await axios.delete(`${API}/sessions/${sessionId}`); }
-    catch (err) { console.error(err); }
+    try {
+      await axios.delete(`${API}/sessions/${sessionId}`, { headers: getAuthHeaders() });
+    } catch (err) { console.error(err); }
   };
 
   const restoreSession = (session) => {
@@ -567,7 +575,7 @@ function App() {
               </motion.div>
 
               <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3, duration: 0.4 }} className="w-full max-w-3xl">
-                <SearchBox sourceText={sourceText} multiSources={multiSources} onResult={handleResult} disabled={!sourceText} results={results} sessionId={currentSessionId} />
+                <SearchBox sourceText={sourceText} multiSources={multiSources} onResult={handleResult} disabled={!sourceText} results={results} sessionId={currentSessionId} userId={user?.id} />
               </motion.div>
             </motion.div>
           )}
@@ -607,7 +615,7 @@ function App() {
 
             <div className="fixed bottom-0 left-0 right-0 z-20 bg-gradient-to-t from-[#050505] via-[#050505]/90 to-transparent pt-8 pb-6 px-4">
               <div className="max-w-3xl mx-auto">
-                <SearchBox sourceText={sourceText} multiSources={multiSources} onResult={handleResult} disabled={!sourceText} results={results} sessionId={currentSessionId} />
+                <SearchBox sourceText={sourceText} multiSources={multiSources} onResult={handleResult} disabled={!sourceText} results={results} sessionId={currentSessionId} userId={user?.id} />
               </div>
             </div>
           </div>

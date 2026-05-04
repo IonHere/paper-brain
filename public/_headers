@@ -1,0 +1,2 @@
+/*
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://paper-brain-lyart.vercel.app https://evgakbnmdeflmqomrjat.supabase.co https://api.groq.com https://generativelanguage.googleapis.com; font-src 'self'; frame-ancestors 'none'; form-action 'self'; upgrade-insecure-requests

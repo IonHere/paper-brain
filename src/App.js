@@ -233,7 +233,6 @@ function App() {
   const topRef = useRef(null);
   const chatRef = useRef(null);
 
-  // Helper to get auth headers for backend calls
   const getAuthHeaders = () => user ? { "X-User-Id": user.id } : {};
 
   // ── Auth state listener ──
@@ -289,15 +288,49 @@ function App() {
           const name = item.query ? item.query.slice(0, 35) : item.source_preview ? item.source_preview.slice(0, 35) : date;
           grouped[key] = { id: key, label: name, date, prompts: [], full_text: item.full_text || "", filename: item.filename || "" };
         }
+
+        // ── FIX: parse images_data and sections_data from history ──
+        let parsedImages = [];
+        if (item.images_data) {
+          try {
+            parsedImages = typeof item.images_data === "string"
+              ? JSON.parse(item.images_data)
+              : item.images_data;
+          } catch {}
+        }
+
+        let parsedSections = null;
+        if (item.sections_data) {
+          try {
+            const raw = typeof item.sections_data === "string"
+              ? JSON.parse(item.sections_data)
+              : item.sections_data;
+            // sections_data is stored as sectioned_results array — grab first item's sections
+            if (Array.isArray(raw) && raw[0]?.sections) {
+              parsedSections = raw[0].sections;
+            } else if (Array.isArray(raw) && raw[0]?.text) {
+              parsedSections = raw;
+            }
+          } catch {}
+        }
+
         grouped[key].prompts.push({
-          id: item.id, mode: item.mode, result: item.result, timestamp: item.timestamp,
-          inputQuery: item.query, inputQuestion: item.question, inputAnswer: item.answer,
-          sourceText: item.full_text || "", filename: item.filename || "", 
-          sections: item.sections_data || null,
-      });
+          id: item.id,
+          mode: item.mode,
+          result: item.result,
+          timestamp: item.timestamp,
+          inputQuery: item.query,
+          inputQuestion: item.question,
+          inputAnswer: item.answer,
+          sourceText: item.full_text || "",
+          filename: item.filename || "",
+          // ── FIX: include images in restored history prompts ──
+          analyzed_images: parsedImages,
+          sections: parsedSections,
+        });
       });
 
-      // ── REVERSE prompts so oldest shows first (chat order) ──
+      // Reverse prompts so oldest shows first (chat order)
       Object.keys(grouped).forEach(key => {
         grouped[key].prompts.reverse();
       });
@@ -331,7 +364,10 @@ function App() {
         if (existing) return prev.map(s => s.id === sessionId ? { ...s, prompts: results } : s);
         else {
           if (user) {
-            axios.post(`${API}/sessions`, { id: sessionId, label: sessionLabel, date: sessionDate, full_text: sourceText, filename: sourceInfo?.filename || "" }, { headers: getAuthHeaders() })
+            axios.post(`${API}/sessions`, {
+              id: sessionId, label: sessionLabel, date: sessionDate,
+              full_text: sourceText, filename: sourceInfo?.filename || ""
+            }, { headers: getAuthHeaders() })
               .catch(err => console.error("Failed to save session", err));
           }
           return [{ id: sessionId, label: sessionLabel, date: sessionDate, prompts: results, full_text: sourceText, filename: sourceInfo?.filename || "" }, ...prev];
@@ -340,6 +376,7 @@ function App() {
     }
   }, [results]);
 
+  // ── FIX: handleResult now preserves analyzed_images and sections from API response ──
   const handleResult = (result) => {
     // Guest mode — show auth modal on 2nd query attempt
     if (isGuest && guestPromptCount >= 1) {
@@ -347,12 +384,27 @@ function App() {
       return;
     }
     if (!hasStarted) setHasStarted(true);
-    setResults((prev) => [...prev, result]);
+
+    // result comes from SearchBox which calls /api/process
+    // Make sure analyzed_images and sections are included
+    const enrichedResult = {
+      ...result,
+      analyzed_images: result.analyzed_images || [],
+      sections: result.sections || null,
+    };
+
+    setResults((prev) => [...prev, enrichedResult]);
     if (isGuest) setGuestPromptCount(prev => prev + 1);
   };
 
   const handleRegenerate = (id, newResult) => {
-    setResults(prev => prev.map(r => r.id === id ? { ...r, ...newResult } : r));
+    setResults(prev => prev.map(r => r.id === id ? {
+      ...r,
+      ...newResult,
+      // ── FIX: always keep analyzed_images and sections on regenerate ──
+      analyzed_images: newResult.analyzed_images || r.analyzed_images || [],
+      sections: newResult.sections || r.sections || null,
+    } : r));
   };
 
   const handleDeleteResult = async (id) => {
@@ -617,7 +669,6 @@ function App() {
 
             <div ref={chatRef} onScroll={handleScroll} className="overflow-y-auto px-4 sm:px-6 py-6 pb-64 absolute inset-0 top-[52px] bottom-0">
               <div ref={topRef} />
-              {/* ── Wider result container ── */}
               <div className="max-w-5xl mx-auto space-y-4">
                 <ResultDisplay results={results} onClear={clearResults} sourceText={sourceText} multiSources={multiSources} onRegenerate={handleRegenerate} onDelete={handleDeleteResult} />
                 <div ref={bottomRef} />

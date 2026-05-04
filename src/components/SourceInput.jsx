@@ -8,6 +8,9 @@ import axios from "axios";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
+const MAX_SIZE_MB = 4;
+const MAX_SIZE_BYTES = MAX_SIZE_MB * 1024 * 1024;
+
 export default function SourceInput({ sourceText, setSourceText, sourceInfo, setSourceInfo, onMultiSource }) {
   const [isExpanded, setIsExpanded] = useState(!sourceText);
   const [isUploading, setIsUploading] = useState(false);
@@ -29,6 +32,11 @@ export default function SourceInput({ sourceText, setSourceText, sourceInfo, set
     try {
       const newSources = [...sources];
       for (const file of acceptedFiles) {
+        // ── Client-side size check ──
+        if (file.size > MAX_SIZE_BYTES) {
+          alert(`"${file.name}" is too large (${(file.size / 1024 / 1024).toFixed(1)} MB). Maximum allowed size is ${MAX_SIZE_MB} MB.`);
+          continue;
+        }
         const res = await uploadFile(file);
         if (!newSources.find(s => s.filename === res.filename)) {
           newSources.push({
@@ -207,6 +215,10 @@ export default function SourceInput({ sourceText, setSourceText, sourceInfo, set
                       </p>
                       <p className="text-xs text-muted-foreground/60 mt-1">
                         Multiple PDFs supported — hold Ctrl to select multiple
+                      </p>
+                      {/* ── NEW: size limit message ── */}
+                      <p className="text-xs text-amber-400/80 mt-1">
+                        Maximum file size: {MAX_SIZE_MB} MB
                       </p>
                     </>
                   )}

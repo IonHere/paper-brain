@@ -17,23 +17,18 @@ const MODE_CONFIG = {
 
 function parseResult(result) {
   if (!result) return "";
-  // Handle array format: [{"filename": "...", "result": "..."}]
   try {
-    // Try parsing as JSON array
     let parsed = result;
     if (typeof result === "string") {
-      // Replace single quotes with double quotes for Python-style dicts
       parsed = JSON.parse(result.replace(/'/g, '"'));
     }
     if (Array.isArray(parsed) && parsed.length > 0) {
-      // Return first result's text
       return parsed[0]?.result || parsed[0]?.text || String(parsed[0]) || "";
     }
     if (typeof parsed === "object" && parsed?.result) {
       return parsed.result;
     }
   } catch {}
-  // Return as-is if not JSON
   return typeof result === "string" ? result : String(result);
 }
 
@@ -65,18 +60,29 @@ function MarkdownContent({ content }) {
 
 // ── Inline image component ──
 function InlineImage({ image }) {
-  if (!image || !image.data) return null;
+  if (!image) return null;
+
+  // Support both {data, page} (from sections) and {data, page} (from analyzed_images)
+  const base64 = image.data || image.b64;
+  if (!base64) return null;
+
+  const handleExpand = () => {
+    const win = window.open("", "_blank");
+    win.document.write(
+      `<html><body style="margin:0;background:#000;display:flex;align-items:center;justify-content:center;min-height:100vh">` +
+      `<img src="data:image/png;base64,${base64}" style="max-width:100%;max-height:100vh;object-fit:contain"/>` +
+      `</body></html>`
+    );
+  };
+
   return (
     <div className="my-3">
       <div
         className="relative group/img rounded-lg overflow-hidden border border-white/10 bg-white/3 cursor-pointer inline-block max-w-sm"
-        onClick={() => {
-          const win = window.open("", "_blank");
-          win.document.write(`<html><body style="margin:0;background:#000;display:flex;align-items:center;justify-content:center;min-height:100vh"><img src="data:image/png;base64,${image.data}" style="max-width:100%;max-height:100vh;object-fit:contain"/></body></html>`);
-        }}
+        onClick={handleExpand}
       >
         <img
-          src={`data:image/png;base64,${image.data}`}
+          src={`data:image/png;base64,${base64}`}
           alt={`Page ${image.page} diagram`}
           className="max-h-48 object-contain p-1"
         />
@@ -86,15 +92,39 @@ function InlineImage({ image }) {
           </span>
         </div>
       </div>
-      <p className="text-[10px] text-muted-foreground/50 mt-1">Page {image.page}</p>
+      {image.page && (
+        <p className="text-[10px] text-muted-foreground/50 mt-1">Page {image.page}</p>
+      )}
+    </div>
+  );
+}
+
+// ── Images gallery (for unmatched or fallback images) ──
+function ImagesGallery({ images, label = "Images from document" }) {
+  if (!images || images.length === 0) return null;
+  return (
+    <div className="mt-3 space-y-2">
+      <p className="text-[10px] text-muted-foreground/50 uppercase tracking-wide">{label}</p>
+      <div className="flex flex-wrap gap-3">
+        {images.map((img, i) => (
+          <InlineImage key={i} image={img} />
+        ))}
+      </div>
     </div>
   );
 }
 
 // ── Interleaved sections renderer ──
-function SectionedContent({ sections, fallbackText }) {
-  // If sections available — render interleaved text + image
+function SectionedContent({ sections, fallbackText, analyzedImages }) {
   if (sections && sections.length > 0) {
+    // Track which image pages were already used inline
+    const usedPages = new Set(
+      sections.filter(s => s.image).map(s => s.image.page)
+    );
+    const unusedImages = (analyzedImages || []).filter(
+      img => !usedPages.has(img.page)
+    );
+
     return (
       <div className="space-y-4">
         {sections.map((section, i) => (
@@ -109,12 +139,23 @@ function SectionedContent({ sections, fallbackText }) {
             )}
           </div>
         ))}
+        {/* Render any images that weren't matched to a section */}
+        {unusedImages.length > 0 && (
+          <ImagesGallery images={unusedImages} label="Additional images" />
+        )}
       </div>
     );
   }
 
-  // Fallback — plain markdown
-  return <MarkdownContent content={parseResult(fallbackText)} />;
+  // Fallback — plain markdown + all images shown below
+  return (
+    <div>
+      <MarkdownContent content={parseResult(fallbackText)} />
+      {analyzedImages && analyzedImages.length > 0 && (
+        <ImagesGallery images={analyzedImages} />
+      )}
+    </div>
+  );
 }
 
 // ── Copy button ──
@@ -161,7 +202,8 @@ function FeedbackBar({ result, sourceText, multiSources, onRegenerate }) {
         ? multiSources.map(s => ({ filename: s.filename, text: s.text }))
         : [{ filename: "Document", text: sourceText }];
       const res = await axios.post(`${API}/regenerate`, {
-        texts, mode: result.mode,
+        texts,
+        mode: result.mode,
         previous_response: parseResult(result.result),
         feedback_comment: feedbackText,
         query: result.inputQuery,
@@ -190,7 +232,8 @@ function FeedbackBar({ result, sourceText, multiSources, onRegenerate }) {
         ? multiSources.map(s => ({ filename: s.filename, text: s.text }))
         : [{ filename: "Document", text: sourceText }];
       const res = await axios.post(`${API}/regenerate`, {
-        texts, mode: result.mode,
+        texts,
+        mode: result.mode,
         previous_response: parseResult(result.result),
         query: result.inputQuery,
         question: result.inputQuestion,
@@ -290,6 +333,12 @@ function ResultCard({ result, index, sourceText, multiSources, onRegenerate, onD
                 {result.filename}
               </span>
             )}
+            {/* Image count badge */}
+            {result.analyzed_images && result.analyzed_images.length > 0 && (
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/10">
+                {result.analyzed_images.length} image{result.analyzed_images.length !== 1 ? "s" : ""}
+              </span>
+            )}
             <span className="text-[10px] text-muted-foreground/50 ml-auto mr-6">
               {new Date(result.timestamp).toLocaleTimeString()}
             </span>
@@ -316,10 +365,11 @@ function ResultCard({ result, index, sourceText, multiSources, onRegenerate, onD
             </div>
           )}
 
-          {/* Interleaved sections (text + image per section) */}
+          {/* Interleaved sections (text + image per section) + fallback images */}
           <SectionedContent
             sections={result.sections}
             fallbackText={result.result}
+            analyzedImages={result.analyzed_images}
           />
 
           {!isError && (

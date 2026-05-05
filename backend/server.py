@@ -220,7 +220,8 @@ async def analyze_image_with_vision_model(image_base64: str, page: int = 0) -> d
         payload = {
             "contents": [{
                 "parts": [
-                    {"text": "Analyze this image from a PDF. If handwritten: extract ALL text exactly. If diagram/chart/figure: describe in detail with labels, relationships, key concepts, and topic name. If printed text: extract it. Be thorough and specific about the topic this image covers."},
+                    # ── Updated prompt — ask Gemini to identify figure numbers ──
+                    {"text": "Analyze this image from a PDF document. First, identify if there is a figure number or label (e.g. 'Figure 12-2', 'Fig. 3', 'Table 1') visible in or near the image and state it explicitly at the start of your response. Then: If it is a diagram/chart/figure: describe in detail with labels, relationships, key concepts, and the topic it covers. If handwritten: extract ALL text exactly. If printed text: extract it. Be thorough and specific."},
                     {"inline_data": {"mime_type": "image/png", "data": image_base64}}
                 ]
             }],

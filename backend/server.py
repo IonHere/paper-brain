@@ -220,8 +220,7 @@ async def analyze_image_with_vision_model(image_base64: str, page: int = 0) -> d
         payload = {
             "contents": [{
                 "parts": [
-                    # ── Updated prompt — ask Gemini to identify figure numbers ──
-                    {"text": "Analyze this image from a PDF document. First, identify if there is a figure number or label (e.g. 'Figure 12-2', 'Fig. 3', 'Table 1') visible in or near the image and state it explicitly at the start of your response. Then: If it is a diagram/chart/figure: describe in detail with labels, relationships, key concepts, and the topic it covers. If handwritten: extract ALL text exactly. If printed text: extract it. Be thorough and specific."},
+                    {"text": "Analyze this image from a PDF. If handwritten: extract ALL text exactly. If diagram/chart/figure: describe in detail with labels, relationships, key concepts, and topic name. If printed text: extract it. Be thorough and specific about the topic this image covers."},
                     {"inline_data": {"mime_type": "image/png", "data": image_base64}}
                 ]
             }],
@@ -547,7 +546,11 @@ async def upload_pdf(file: UploadFile = File(...)):
                         aspect_ratio = width / height if height > 0 else 0
                         if aspect_ratio > 4 or aspect_ratio < 0.2:
                             continue
-                        cropped = page.within_bbox((x0, top, x1, bottom)).to_image(resolution=150)
+                        # ── FIX: expand crop to capture figure captions above/below ──
+                        page_height = page.height
+                        top_expanded = max(top - 10, 0)
+                        bottom_expanded = min(bottom + 40, page_height)
+                        cropped = page.within_bbox((x0, top_expanded, x1, bottom_expanded)).to_image(resolution=150)
                         img_buffer = io.BytesIO()
                         cropped.save(img_buffer, format="PNG")
                         img_buffer.seek(0)

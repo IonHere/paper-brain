@@ -297,10 +297,33 @@ def find_best_image_for_section(section_text: str, analyzed_images: list, used_i
     if not analyzed_images:
         return None
 
-    # If query explicitly asks for a visual, lower the threshold slightly
-    # but still require meaningful overlap
-    visual_query = query_requests_visual(query)
+    # ── Priority 1: Match by figure number explicitly mentioned in text ──
+    # e.g. "Figure 12-2", "Fig. 3", "figure 5a"
+    figure_refs = re.findall(r'fig(?:ure)?\.?\s*[\d]+[\-\.]?[\d]*[a-z]?', section_text.lower())
+    if figure_refs:
+        for i, img in enumerate(analyzed_images):
+            if i in used_images:
+                continue
+            desc = img.get("description", "").lower()
+            for ref in figure_refs:
+                # Normalize ref for comparison
+                ref_clean = re.sub(r'\s+', ' ', ref).strip()
+                if ref_clean in desc:
+                    used_images.add(i)
+                    return {"page": img["page"], "data": img["data"]}
 
+    # ── Priority 2: Match by page number if text mentions a specific page ──
+    page_refs = re.findall(r'page\s+(\d+)', section_text.lower())
+    if page_refs:
+        for i, img in enumerate(analyzed_images):
+            if i in used_images:
+                continue
+            if str(img.get("page", "")) in page_refs:
+                used_images.add(i)
+                return {"page": img["page"], "data": img["data"]}
+
+    # ── Priority 3: Keyword overlap with tighter thresholds ──
+    visual_query = query_requests_visual(query)
     section_keywords = extract_keywords(section_text)
     if not section_keywords:
         return None
@@ -318,15 +341,13 @@ def find_best_image_for_section(section_text: str, analyzed_images: list, used_i
         desc_keywords = extract_keywords(desc)
         overlap = len(section_keywords & desc_keywords)
 
-        # Score = overlap relative to section size (how much of the section is covered)
+        # Score relative to section size
         score = overlap / max(len(section_keywords), 1)
 
-        # Tighter thresholds to avoid irrelevant matches:
-        # - Require at least 4 overlapping keywords (was 2)
-        # - Require score > 0.15 (was 0.04) — 15% of section keywords must match
-        # - If user explicitly asked for a visual, slightly lower bar to 3 keywords / 0.10
-        min_overlap = 3 if visual_query else 4
-        min_score = 0.10 if visual_query else 0.15
+        # Tighter thresholds — require strong relevance to avoid wrong image matches
+        # Visual queries (user asked for diagram/figure) get slightly lower bar
+        min_overlap = 3 if visual_query else 5
+        min_score = 0.12 if visual_query else 0.20
 
         if overlap >= min_overlap and score > min_score and score > best_score:
             best_score = score

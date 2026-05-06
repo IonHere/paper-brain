@@ -85,8 +85,9 @@ export default function Auth({ onClose, isModal = false }) {
         )}
       </div>
 
+      {/* CHANGE 1: "Welcome back" → "Welcome" */}
       <h2 className="text-xl font-semibold text-foreground mb-1">
-        {mode === "signin" ? "Welcome back" : mode === "signup" ? "Create account" : "Reset password"}
+        {mode === "signin" ? "Welcome" : mode === "signup" ? "Create account" : "Reset password"}
       </h2>
       <p className="text-sm text-muted-foreground mb-6">
         {mode === "signin" ? "Sign in to access your documents and history" :
@@ -244,11 +245,28 @@ export default function Auth({ onClose, isModal = false }) {
     );
   }
 
+  // CHANGE 2: outer container fits inner card, footer links at the bottom
   return (
-    <div className="min-h-screen flex items-center justify-center px-4 bg-[#050505]">
+    <div className="flex items-center justify-center px-4 bg-[#050505]" style={{ minHeight: "100vh" }}>
       <div className="noise-overlay" />
-      <div className="relative z-10 w-full max-w-md bg-[#0a0a0a] border border-white/10 rounded-2xl p-6">
+      <div className="relative z-10 w-full max-w-md bg-[#0a0a0a] border border-white/10 rounded-2xl p-6 flex flex-col">
         {content}
+
+        {/* CHANGE 3: About us + Contact at the very bottom of the card */}
+        <div className="mt-6 pt-4 border-t border-white/10 flex items-center justify-center gap-6">
+          <button
+            onClick={() => alert("PaperBrain is an AI-powered document assistant that helps you understand, summarize, and interact with your PDFs.")}
+            className="text-xs text-muted-foreground hover:text-indigo-400 transition-colors"
+          >
+            About us
+          </button>
+          <a
+            href="mailto:paperbrain.support@gmail.com"
+            className="text-xs text-muted-foreground hover:text-indigo-400 transition-colors"
+          >
+            Contact
+          </a>
+        </div>
       </div>
     </div>
   );

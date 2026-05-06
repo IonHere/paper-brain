@@ -289,7 +289,6 @@ function App() {
           grouped[key] = { id: key, label: name, date, prompts: [], full_text: item.full_text || "", filename: item.filename || "" };
         }
 
-        // ── FIX: parse images_data and sections_data from history ──
         let parsedImages = [];
         if (item.images_data) {
           try {
@@ -305,7 +304,6 @@ function App() {
             const raw = typeof item.sections_data === "string"
               ? JSON.parse(item.sections_data)
               : item.sections_data;
-            // sections_data is stored as sectioned_results array — grab first item's sections
             if (Array.isArray(raw) && raw[0]?.sections) {
               parsedSections = raw[0].sections;
             } else if (Array.isArray(raw) && raw[0]?.text) {
@@ -324,13 +322,11 @@ function App() {
           inputAnswer: item.answer,
           sourceText: item.full_text || "",
           filename: item.filename || "",
-          // ── FIX: include images in restored history prompts ──
           analyzed_images: parsedImages,
           sections: parsedSections,
         });
       });
 
-      // Reverse prompts so oldest shows first (chat order)
       Object.keys(grouped).forEach(key => {
         grouped[key].prompts.reverse();
       });
@@ -376,17 +372,13 @@ function App() {
     }
   }, [results]);
 
-  // ── FIX: handleResult now preserves analyzed_images and sections from API response ──
   const handleResult = (result) => {
-    // Guest mode — show auth modal on 2nd query attempt
     if (isGuest && guestPromptCount >= 1) {
       setShowAuthModal(true);
       return;
     }
     if (!hasStarted) setHasStarted(true);
 
-    // result comes from SearchBox which calls /api/process
-    // Make sure analyzed_images and sections are included
     const enrichedResult = {
       ...result,
       analyzed_images: result.analyzed_images || [],
@@ -401,7 +393,6 @@ function App() {
     setResults(prev => prev.map(r => r.id === id ? {
       ...r,
       ...newResult,
-      // ── FIX: always keep analyzed_images and sections on regenerate ──
       analyzed_images: newResult.analyzed_images || r.analyzed_images || [],
       sections: newResult.sections || r.sections || null,
     } : r));
@@ -516,30 +507,37 @@ function App() {
     );
   }
 
-  // ── Full auth screen (not logged in, not guest) ──
+  // ── FIXED: Full auth screen — outer container fits card, no logo above ──
   if (!user && !isGuest) {
     return (
-      <div className="app-bg min-h-screen">
+      <div className="app-bg">
         <div className="noise-overlay" />
-        <div className="relative z-10 min-h-screen flex flex-col items-center justify-center px-4">
+        <div className="relative z-10 flex items-center justify-center px-4" style={{ minHeight: "100vh" }}>
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="w-full max-w-md">
-            <div className="text-center mb-8">
-              <img src="/logo.png" alt="PaperBrain" className="w-16 h-16 object-contain mx-auto mb-4" />
-              <h1 className="text-4xl font-bold text-foreground mb-2">
-                Paper<span className="text-indigo-400">Brain</span>
-              </h1>
-              <p className="text-sm text-muted-foreground">Your private AI document assistant</p>
-            </div>
-
             <div className="bg-[#0a0a0a] border border-white/10 rounded-2xl p-6">
               <Auth />
-              <div className="mt-4 pt-4 border-t border-white/5 text-center">
+              <div className="mt-4 pt-4 border-t border-white/5 text-center space-y-3">
                 <button
                   onClick={handleGuestMode}
                   className="text-xs text-muted-foreground hover:text-indigo-400 transition-colors"
                 >
                   Try as guest <span className="text-muted-foreground/50">(1 free prompt)</span>
                 </button>
+                {/* FIXED: About us + Contact at bottom of card */}
+                <div className="pt-2 border-t border-white/5 flex items-center justify-center gap-6">
+                  <button
+                    onClick={() => alert("PaperBrain is an AI-powered document assistant that helps you understand, summarize, and interact with your PDFs.")}
+                    className="text-xs text-muted-foreground hover:text-indigo-400 transition-colors"
+                  >
+                    About us
+                  </button>
+                  <a
+                    href="mailto:paperbrain.support@gmail.com"
+                    className="text-xs text-muted-foreground hover:text-indigo-400 transition-colors"
+                  >
+                    Contact
+                  </a>
+                </div>
               </div>
             </div>
           </motion.div>

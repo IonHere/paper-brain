@@ -71,19 +71,9 @@ export default function Auth({ onClose, isModal = false }) {
 
   const content = (
     <div style={{ width: "100%", maxWidth: "400px", margin: "0 auto" }}>
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-2">
-          <img src="/logo.png" alt="PaperBrain" className="w-8 h-8 object-contain" />
-          <span className="text-lg font-semibold text-foreground">
-            Paper<span className="text-indigo-400">Brain</span>
-          </span>
-        </div>
-        {isModal && onClose && (
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-white/10 text-muted-foreground hover:text-foreground transition-colors">
-            <X className="w-4 h-4" />
-          </button>
-        )}
-      </div>
+
+      {/* ── CHANGED: logo/name removed here — App.js shows it above card for non-modal,
+                     modal injects its own header before {content} below ── */}
 
       <h2 className="text-xl font-semibold text-foreground mb-1">
         {mode === "signin" ? "Welcome" : mode === "signup" ? "Create account" : "Reset password"}
@@ -222,7 +212,7 @@ export default function Auth({ onClose, isModal = false }) {
     </div>
   );
 
-  // Modal mode — used for guest upgrade prompt
+  // ── CHANGED: Modal gets its own logo header + X button above content ──
   if (isModal) {
     return (
       <motion.div
@@ -239,12 +229,24 @@ export default function Auth({ onClose, isModal = false }) {
           transition={{ duration: 0.2 }}
           className="w-full max-w-md bg-[#0a0a0a] border border-white/10 rounded-2xl p-6"
         >
+          {/* Logo + close button — only in modal */}
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-2">
+              <img src="/logo.png" alt="PaperBrain" className="w-8 h-8 object-contain" />
+              <span className="text-lg font-semibold text-foreground">
+                Paper<span className="text-indigo-400">Brain</span>
+              </span>
+            </div>
+            <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-white/10 text-muted-foreground hover:text-foreground transition-colors">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
           {content}
         </motion.div>
       </motion.div>
     );
   }
 
-  // Non-modal: just return content — App.js owns the card shell
+  // Non-modal: App.js owns the card shell and shows branding above
   return <>{content}</>;
 }

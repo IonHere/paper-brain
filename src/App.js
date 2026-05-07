@@ -504,7 +504,7 @@ function App() {
     );
   }
 
-  // ── Full auth screen — two-panel layout matching sketch ──
+  // ── Full auth screen ──
   if (!user && !isGuest) {
     return (
       <div className="app-bg">
@@ -513,9 +513,17 @@ function App() {
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="w-full max-w-md"
+            className="w-full max-w-md ml-auto mr-[8%]"
           >
-            {/* Outer container — two panels stacked */}
+            {/* Branding ABOVE the card — bigger logo */}
+            <div className="flex items-center gap-3 mb-5 px-1">
+              <img src="/logo.png" alt="PaperBrain" className="w-14 h-14 object-contain" />
+              <span className="text-3xl font-bold text-foreground">
+                Paper<span className="text-indigo-400">Brain</span>
+              </span>
+            </div>
+
+            {/* Card */}
             <div className="bg-[#0a0a0a] border border-white/10 rounded-2xl overflow-hidden">
 
               {/* TOP PANEL — auth form */}
@@ -533,31 +541,20 @@ function App() {
                 </div>
               </div>
 
-              {/* BOTTOM PANEL — branding left, links right */}
-              <div className="border-t border-white/10 bg-white/[0.02] px-6 py-4 flex items-center justify-between">
-                {/* Left: logo + name */}
-                <div className="flex items-center gap-2.5">
-                  <img src="/logo.png" alt="PaperBrain" className="w-7 h-7 object-contain" />
-                  <span className="text-sm font-semibold text-foreground">
-                    Paper<span className="text-indigo-400">Brain</span>
-                  </span>
-                </div>
-
-                {/* Right: About us + Contact */}
-                <div className="flex items-center gap-5">
-                  <button
-                    onClick={() => alert("PaperBrain is an AI-powered document assistant that helps you understand, summarize, and interact with your PDFs.")}
-                    className="text-xs text-muted-foreground hover:text-indigo-400 transition-colors"
-                  >
-                    About us
-                  </button>
-                  <a
-                    href="mailto:paperbrain.support@gmail.com"
-                    className="text-xs text-muted-foreground hover:text-indigo-400 transition-colors"
-                  >
-                    Contact
-                  </a>
-                </div>
+              {/* BOTTOM PANEL — About us + Contact only, no logo */}
+              <div className="border-t border-white/10 bg-white/[0.02] px-6 py-4 flex items-center justify-end gap-5">
+                <button
+                  onClick={() => alert("PaperBrain is an AI-powered document assistant that helps you understand, summarize, and interact with your PDFs.")}
+                  className="text-xs text-muted-foreground hover:text-indigo-400 transition-colors"
+                >
+                  About us
+                </button>
+                <a
+                  href="mailto:paperbrain.support@gmail.com"
+                  className="text-xs text-muted-foreground hover:text-indigo-400 transition-colors"
+                >
+                  Contact
+                </a>
               </div>
 
             </div>

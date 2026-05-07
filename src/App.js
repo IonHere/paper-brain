@@ -504,43 +504,62 @@ function App() {
     );
   }
 
-  // ── Full auth screen ──
-  // Card shell lives here. Auth.jsx renders only the form content (no outer wrapper).
+  // ── Full auth screen — two-panel layout matching sketch ──
   if (!user && !isGuest) {
     return (
       <div className="app-bg">
         <div className="noise-overlay" />
         <div className="relative z-10 flex items-center justify-center px-4" style={{ minHeight: "100vh" }}>
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="w-full max-w-md">
-            <div className="bg-[#0a0a0a] border border-white/10 rounded-2xl p-6">
-              {/* Auth form content */}
-              <Auth />
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="w-full max-w-md"
+          >
+            {/* Outer container — two panels stacked */}
+            <div className="bg-[#0a0a0a] border border-white/10 rounded-2xl overflow-hidden">
 
-              {/* Try as guest */}
-              <div className="mt-4 pt-4 border-t border-white/5 text-center">
-                <button
-                  onClick={handleGuestMode}
-                  className="text-xs text-muted-foreground hover:text-indigo-400 transition-colors"
-                >
-                  Try as guest <span className="text-muted-foreground/50">(1 free prompt)</span>
-                </button>
+              {/* TOP PANEL — auth form */}
+              <div className="p-6">
+                <Auth />
+
+                {/* Try as guest */}
+                <div className="mt-4 pt-4 border-t border-white/5 text-center">
+                  <button
+                    onClick={handleGuestMode}
+                    className="text-xs text-muted-foreground hover:text-indigo-400 transition-colors"
+                  >
+                    Try as guest <span className="text-muted-foreground/50">(1 free prompt)</span>
+                  </button>
+                </div>
               </div>
 
-              {/* About us + Contact — single instance, bottom of card */}
-              <div className="mt-3 pt-3 border-t border-white/5 flex items-center justify-center gap-6">
-                <button
-                  onClick={() => alert("PaperBrain is an AI-powered document assistant that helps you understand, summarize, and interact with your PDFs.")}
-                  className="text-xs text-muted-foreground hover:text-indigo-400 transition-colors"
-                >
-                  About us
-                </button>
-                <a
-                  href="mailto:paperbrain.support@gmail.com"
-                  className="text-xs text-muted-foreground hover:text-indigo-400 transition-colors"
-                >
-                  Contact
-                </a>
+              {/* BOTTOM PANEL — branding left, links right */}
+              <div className="border-t border-white/10 bg-white/[0.02] px-6 py-4 flex items-center justify-between">
+                {/* Left: logo + name */}
+                <div className="flex items-center gap-2.5">
+                  <img src="/logo.png" alt="PaperBrain" className="w-7 h-7 object-contain" />
+                  <span className="text-sm font-semibold text-foreground">
+                    Paper<span className="text-indigo-400">Brain</span>
+                  </span>
+                </div>
+
+                {/* Right: About us + Contact */}
+                <div className="flex items-center gap-5">
+                  <button
+                    onClick={() => alert("PaperBrain is an AI-powered document assistant that helps you understand, summarize, and interact with your PDFs.")}
+                    className="text-xs text-muted-foreground hover:text-indigo-400 transition-colors"
+                  >
+                    About us
+                  </button>
+                  <a
+                    href="mailto:paperbrain.support@gmail.com"
+                    className="text-xs text-muted-foreground hover:text-indigo-400 transition-colors"
+                  >
+                    Contact
+                  </a>
+                </div>
               </div>
+
             </div>
           </motion.div>
         </div>

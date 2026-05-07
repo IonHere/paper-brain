@@ -58,7 +58,6 @@ function Sidebar({ isOpen, onClose, onNewChat, sessions, setSessions, onSelectSe
               </button>
             </div>
 
-            {/* User info */}
             {user && (
               <div className="px-3 py-3 border-b border-white/5">
                 <div className="flex items-center gap-2 px-2 py-1.5">
@@ -235,7 +234,6 @@ function App() {
 
   const getAuthHeaders = () => user ? { "X-User-Id": user.id } : {};
 
-  // ── Auth state listener ──
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
@@ -255,7 +253,6 @@ function App() {
     return () => subscription.unsubscribe();
   }, []);
 
-  // ── Load history when user logs in ──
   useEffect(() => {
     if (user) fetchHistory();
   }, [user]);
@@ -507,7 +504,8 @@ function App() {
     );
   }
 
-  // ── FIXED: Full auth screen — outer container fits card, no logo above ──
+  // ── Full auth screen ──
+  // Card shell lives here. Auth.jsx renders only the form content (no outer wrapper).
   if (!user && !isGuest) {
     return (
       <div className="app-bg">
@@ -515,29 +513,33 @@ function App() {
         <div className="relative z-10 flex items-center justify-center px-4" style={{ minHeight: "100vh" }}>
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="w-full max-w-md">
             <div className="bg-[#0a0a0a] border border-white/10 rounded-2xl p-6">
+              {/* Auth form content */}
               <Auth />
-              <div className="mt-4 pt-4 border-t border-white/5 text-center space-y-3">
+
+              {/* Try as guest */}
+              <div className="mt-4 pt-4 border-t border-white/5 text-center">
                 <button
                   onClick={handleGuestMode}
                   className="text-xs text-muted-foreground hover:text-indigo-400 transition-colors"
                 >
                   Try as guest <span className="text-muted-foreground/50">(1 free prompt)</span>
                 </button>
-                {/* FIXED: About us + Contact at bottom of card */}
-                <div className="pt-2 border-t border-white/5 flex items-center justify-center gap-6">
-                  <button
-                    onClick={() => alert("PaperBrain is an AI-powered document assistant that helps you understand, summarize, and interact with your PDFs.")}
-                    className="text-xs text-muted-foreground hover:text-indigo-400 transition-colors"
-                  >
-                    About us
-                  </button>
-                  <a
-                    href="mailto:paperbrain.support@gmail.com"
-                    className="text-xs text-muted-foreground hover:text-indigo-400 transition-colors"
-                  >
-                    Contact
-                  </a>
-                </div>
+              </div>
+
+              {/* About us + Contact — single instance, bottom of card */}
+              <div className="mt-3 pt-3 border-t border-white/5 flex items-center justify-center gap-6">
+                <button
+                  onClick={() => alert("PaperBrain is an AI-powered document assistant that helps you understand, summarize, and interact with your PDFs.")}
+                  className="text-xs text-muted-foreground hover:text-indigo-400 transition-colors"
+                >
+                  About us
+                </button>
+                <a
+                  href="mailto:paperbrain.support@gmail.com"
+                  className="text-xs text-muted-foreground hover:text-indigo-400 transition-colors"
+                >
+                  Contact
+                </a>
               </div>
             </div>
           </motion.div>
@@ -557,7 +559,6 @@ function App() {
     <div className="app-bg">
       <div className="noise-overlay" />
 
-      {/* Auth modal for guest upgrade */}
       <AnimatePresence>
         {showAuthModal && (
           <Auth isModal={true} onClose={() => setShowAuthModal(false)} />
@@ -573,7 +574,6 @@ function App() {
 
       <div className="fixed top-4 left-4 z-20"><HamburgerButton /></div>
 
-      {/* Guest banner */}
       {isGuest && (
         <div className="fixed top-0 left-0 right-0 z-30 bg-indigo-600/20 border-b border-indigo-500/20 px-4 py-2 text-center">
           <span className="text-xs text-indigo-300">

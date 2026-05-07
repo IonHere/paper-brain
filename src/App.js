@@ -542,7 +542,7 @@ function App() {
               </div>
 
               {/* BOTTOM PANEL — About us + Contact only, no logo */}
-              <div className="border-t border-white/10 bg-white/[0.02] px-6 py-4 flex items-center justify-end gap-5">
+              <div className="border-t border-white/10 bg-white/[0.02] px-6 py-4 flex items-center justify-center gap-5">
                 <button
                   onClick={() => alert("PaperBrain is an AI-powered document assistant that helps you understand, summarize, and interact with your PDFs.")}
                   className="text-xs text-muted-foreground hover:text-indigo-400 transition-colors"

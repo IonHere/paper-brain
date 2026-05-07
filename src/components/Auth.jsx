@@ -75,7 +75,7 @@ export default function Auth({ onClose, isModal = false }) {
       {/* ── CHANGED: logo/name removed here — App.js shows it above card for non-modal,
                      modal injects its own header before {content} below ── */}
 
-      <h2 className="text-xl font-semibold text-foreground mb-1">
+      <h2 className="text-3xl font-bold text-foreground mb-1">
         {mode === "signin" ? "Welcome" : mode === "signup" ? "Create account" : "Reset password"}
       </h2>
       <p className="text-sm text-muted-foreground mb-6">

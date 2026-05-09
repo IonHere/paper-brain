@@ -30,12 +30,15 @@ function ReportModal({ isOpen, onClose, userEmail }) {
   const handleSend = async () => {
     if (!message.trim() || !image) return;
     setSending(true);
-    // Build mailto link — opens mail app with pre-filled body
+    // Open Gmail compose in new tab with To, Subject, Body pre-filled
     const subject = encodeURIComponent("PaperBrain — Problem Report");
     const body = encodeURIComponent(
-      `Problem reported by: ${userEmail || "Guest"}\n\n${message}\n\n[Please attach the screenshot manually if it didn't attach automatically]`
+      `Problem reported by: ${userEmail || "Guest"}\n\n${message}\n\n[Please attach the screenshot to this email before sending]`
     );
-    window.location.href = `mailto:paperbrain.support@gmail.com?subject=${subject}&body=${body}`;
+    window.open(
+      `https://mail.google.com/mail/?view=cm&fs=1&to=paperbrain.support@gmail.com&su=${subject}&body=${body}`,
+      "_blank"
+    );
     setSending(false);
     setSent(true);
     setTimeout(() => { setSent(false); onClose(); setMessage(""); setImage(null); setImagePreview(null); }, 2000);
@@ -119,7 +122,7 @@ function ReportModal({ isOpen, onClose, userEmail }) {
               </button>
 
               <p className="text-[10px] text-muted-foreground/40 text-center">
-                This will open your mail app with the report pre-filled.
+                Opens Gmail with the report pre-filled. Please attach the screenshot before sending.
               </p>
             </div>
           </motion.div>
@@ -228,13 +231,15 @@ function AboutPanel({ isOpen, onClose, scrollToContact }) {
                     </div>
                   </div>
 
-                  {/* Also open mail app */}
+                  {/* Gmail compose — opens Gmail in new tab with To pre-filled */}
                   <a
-                    href="mailto:paperbrain.support@gmail.com"
+                    href="https://mail.google.com/mail/?view=cm&fs=1&to=paperbrain.support@gmail.com&su=PaperBrain%20Enquiry"
+                    target="_blank"
+                    rel="noopener noreferrer"
                     className="mt-2 w-full flex items-center justify-center gap-2 px-4 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-indigo-500/10 hover:border-indigo-500/30 transition-colors text-xs text-muted-foreground hover:text-indigo-400"
                   >
                     <Mail className="w-3.5 h-3.5" />
-                    Open mail app
+                    Open in Gmail
                   </a>
                 </motion.div>
               </div>

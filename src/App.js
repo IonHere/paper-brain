@@ -450,7 +450,7 @@ function App() {
     return (
       <div className="app-bg">
         <div className="noise-overlay" />
-        <div className="relative z-10 flex items-center justify-center px-4" style={{ minHeight: "100vh" }}>
+        <div className="relative z-10 w-full flex items-center justify-center px-4" style={{ minHeight: "100vh" }}>
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}

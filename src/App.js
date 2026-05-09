@@ -5,16 +5,135 @@ import SearchBox from "./components/SearchBox";
 import ResultDisplay from "./components/ResultDisplay";
 import Auth from "./components/Auth";
 import { supabase } from "./lib/supabaseClient";
-import { Menu, X, Plus, Search, ChevronDown, ChevronUp, ArrowUp, ArrowDown, Clock, Pencil, Trash2, Upload, LogOut, User, Mail } from "lucide-react";
+import { Menu, X, Plus, Search, ChevronDown, ChevronUp, ArrowUp, ArrowDown, Clock, Pencil, Trash2, Upload, LogOut, User, Mail, MoreVertical, Flag, Send, ImagePlus, Check, Copy } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import axios from "axios";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
+// ── Report Problem Modal ──
+function ReportModal({ isOpen, onClose, userEmail }) {
+  const [message, setMessage] = useState("");
+  const [image, setImage] = useState(null);
+  const [imagePreview, setImagePreview] = useState(null);
+  const [sending, setSending] = useState(false);
+  const [sent, setSent] = useState(false);
+  const fileRef = useRef(null);
+
+  const handleImage = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setImage(file);
+    setImagePreview(URL.createObjectURL(file));
+  };
+
+  const handleSend = async () => {
+    if (!message.trim() || !image) return;
+    setSending(true);
+    // Build mailto link — opens mail app with pre-filled body
+    const subject = encodeURIComponent("PaperBrain — Problem Report");
+    const body = encodeURIComponent(
+      `Problem reported by: ${userEmail || "Guest"}\n\n${message}\n\n[Please attach the screenshot manually if it didn't attach automatically]`
+    );
+    window.location.href = `mailto:paperbrain.support@gmail.com?subject=${subject}&body=${body}`;
+    setSending(false);
+    setSent(true);
+    setTimeout(() => { setSent(false); onClose(); setMessage(""); setImage(null); setImagePreview(null); }, 2000);
+  };
+
+  return (
+    <AnimatePresence>
+      {isOpen && (
+        <motion.div
+          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[60] flex items-center justify-center px-4"
+          onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+        >
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95, y: 10 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95, y: 10 }}
+            transition={{ duration: 0.2 }}
+            className="w-full max-w-sm bg-[#0f0f0f] border border-white/10 rounded-2xl overflow-hidden"
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-white/10">
+              <div className="flex items-center gap-2">
+                <Flag className="w-4 h-4 text-red-400" />
+                <span className="text-sm font-semibold text-foreground">Report a Problem</span>
+              </div>
+              <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-white/10 text-muted-foreground hover:text-foreground transition-colors">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="p-5 space-y-4">
+              {/* Message box */}
+              <div>
+                <textarea
+                  value={message}
+                  onChange={(e) => setMessage(e.target.value)}
+                  placeholder="Describe the problem you encountered..."
+                  rows={4}
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground/50 outline-none focus:border-indigo-500/50 transition-colors resize-none"
+                />
+              </div>
+
+              {/* Image upload — mandatory */}
+              <div>
+                <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleImage} />
+                {!imagePreview ? (
+                  <button
+                    onClick={() => fileRef.current.click()}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-dashed border-white/20 hover:border-indigo-500/40 hover:bg-indigo-500/5 transition-colors text-sm text-muted-foreground hover:text-indigo-400"
+                  >
+                    <ImagePlus className="w-4 h-4" />
+                    Attach screenshot <span className="text-red-400 ml-0.5">*</span>
+                  </button>
+                ) : (
+                  <div className="relative rounded-xl overflow-hidden border border-white/10">
+                    <img src={imagePreview} alt="Preview" className="w-full max-h-40 object-cover" />
+                    <button
+                      onClick={() => { setImage(null); setImagePreview(null); }}
+                      className="absolute top-2 right-2 p-1 rounded-full bg-black/60 hover:bg-black/80 text-white transition-colors"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                )}
+                {!image && <p className="text-[10px] text-red-400/70 mt-1.5 px-1">Screenshot is required</p>}
+              </div>
+
+              {/* Send button */}
+              <button
+                onClick={handleSend}
+                disabled={!message.trim() || !image || sending}
+                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white text-sm font-medium transition-colors"
+              >
+                {sent ? (
+                  <><Check className="w-4 h-4" /> Sent!</>
+                ) : (
+                  <><Send className="w-4 h-4" /> Send Report</>
+                )}
+              </button>
+
+              <p className="text-[10px] text-muted-foreground/40 text-center">
+                This will open your mail app with the report pre-filled.
+              </p>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
+
 // ── About / Contact slide panel ──
 function AboutPanel({ isOpen, onClose, scrollToContact }) {
   const contactRef = useRef(null);
   const [highlighted, setHighlighted] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     if (isOpen && scrollToContact) {
@@ -26,9 +145,14 @@ function AboutPanel({ isOpen, onClose, scrollToContact }) {
     }
   }, [isOpen, scrollToContact]);
 
+  const handleCopyEmail = () => {
+    navigator.clipboard.writeText("paperbrain.support@gmail.com");
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
   return (
     <>
-      {/* Backdrop */}
       <AnimatePresence>
         {isOpen && (
           <motion.div
@@ -40,7 +164,6 @@ function AboutPanel({ isOpen, onClose, scrollToContact }) {
         )}
       </AnimatePresence>
 
-      {/* Slide panel from left */}
       <AnimatePresence>
         {isOpen && (
           <motion.div
@@ -48,7 +171,6 @@ function AboutPanel({ isOpen, onClose, scrollToContact }) {
             transition={{ type: "spring", damping: 28, stiffness: 220 }}
             className="fixed left-0 top-0 bottom-0 w-80 z-50 bg-[#0a0a0a] border-r border-white/10 flex flex-col overflow-y-auto"
           >
-            {/* Close button */}
             <div className="flex items-center justify-between px-5 py-4 border-b border-white/10">
               <span className="text-xs text-muted-foreground font-medium tracking-wide uppercase">Info</span>
               <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-white/10 text-muted-foreground hover:text-foreground transition-colors">
@@ -57,19 +179,13 @@ function AboutPanel({ isOpen, onClose, scrollToContact }) {
             </div>
 
             <div className="flex flex-col items-center px-6 py-8 gap-4 flex-1">
-
-              {/* Logo */}
               <img src="/logo.png" alt="PaperBrain" className="w-20 h-20 object-contain" />
-
-              {/* Brand name */}
               <h2 className="text-2xl font-bold text-foreground">
                 Paper<span className="text-indigo-400">Brain</span>
               </h2>
-
-              {/* Divider */}
               <div className="w-full h-px bg-white/10 my-2" />
 
-              {/* About us section */}
+              {/* About us */}
               <div className="w-full">
                 <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-widest mb-3">About us</h3>
                 <p className="text-sm text-foreground/80 leading-relaxed">
@@ -80,40 +196,50 @@ function AboutPanel({ isOpen, onClose, scrollToContact }) {
                 </p>
               </div>
 
-              {/* Divider */}
               <div className="w-full h-px bg-white/10 my-2" />
 
-              {/* Contact section */}
+              {/* Contact */}
               <div className="w-full" ref={contactRef}>
                 <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-widest mb-3">Contact</h3>
 
-                {/* Email with tooltip + highlight animation */}
                 <motion.div
                   animate={highlighted ? { backgroundColor: "rgba(99,102,241,0.15)" } : { backgroundColor: "rgba(255,255,255,0)" }}
                   transition={{ duration: 0.3 }}
-                  className="rounded-xl p-3"
+                  className="rounded-xl p-1"
                 >
-                  <div className="relative group w-full">
-                    <a
-                      href="mailto:paperbrain.support@gmail.com"
-                      className="flex items-center gap-3 w-full px-4 py-3 rounded-xl border border-white/10 bg-white/5 hover:bg-indigo-500/10 hover:border-indigo-500/30 transition-colors"
+                  {/* Email row — click to copy, hover shows tooltip */}
+                  <div className="relative group">
+                    <button
+                      onClick={handleCopyEmail}
+                      className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-white/10 bg-white/5 hover:bg-indigo-500/10 hover:border-indigo-500/30 transition-colors text-left"
                     >
                       <Mail className="w-4 h-4 text-indigo-400 shrink-0" />
-                      <span className="text-sm text-foreground/80 truncate">paperbrain.support@gmail.com</span>
-                    </a>
+                      <span className="text-sm text-foreground/80 truncate flex-1">paperbrain.support@gmail.com</span>
+                      {copied
+                        ? <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                        : <Copy className="w-3.5 h-3.5 text-muted-foreground/50 shrink-0" />
+                      }
+                    </button>
 
                     {/* Hover tooltip */}
                     <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-1.5 bg-[#1a1a1a] border border-white/10 rounded-lg text-xs text-muted-foreground whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
-                      Email us at paperbrain.support@gmail.com
+                      {copied ? "Copied!" : "Click to copy · Email us at paperbrain.support@gmail.com"}
                       <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-[#1a1a1a]" />
                     </div>
                   </div>
+
+                  {/* Also open mail app */}
+                  <a
+                    href="mailto:paperbrain.support@gmail.com"
+                    className="mt-2 w-full flex items-center justify-center gap-2 px-4 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-indigo-500/10 hover:border-indigo-500/30 transition-colors text-xs text-muted-foreground hover:text-indigo-400"
+                  >
+                    <Mail className="w-3.5 h-3.5" />
+                    Open mail app
+                  </a>
                 </motion.div>
               </div>
-
             </div>
 
-            {/* Footer */}
             <div className="px-5 py-4 border-t border-white/10">
               <p className="text-[10px] text-muted-foreground/40 text-center">PaperBrain · AI Document Assistant</p>
             </div>
@@ -124,7 +250,61 @@ function AboutPanel({ isOpen, onClose, scrollToContact }) {
   );
 }
 
-function Sidebar({ isOpen, onClose, onNewChat, sessions, setSessions, onSelectSession, onSelectPrompt, onDeleteSession, user, onSignOut }) {
+// ── Three-dot user menu ──
+function UserMenu({ user, onSignOut, onReport }) {
+  const [open, setOpen] = useState(false);
+  const menuRef = useRef(null);
+
+  useEffect(() => {
+    const handleClick = (e) => {
+      if (menuRef.current && !menuRef.current.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
+
+  return (
+    <div className="relative" ref={menuRef}>
+      <button
+        onClick={() => setOpen(prev => !prev)}
+        className="p-1.5 rounded-lg hover:bg-white/10 text-muted-foreground hover:text-foreground transition-colors"
+        title="More options"
+      >
+        <MoreVertical className="w-3.5 h-3.5" />
+      </button>
+
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95, y: -4 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95, y: -4 }}
+            transition={{ duration: 0.15 }}
+            className="absolute left-0 top-full mt-1 w-44 bg-[#111] border border-white/10 rounded-xl overflow-hidden shadow-xl z-50"
+          >
+            <button
+              onClick={() => { setOpen(false); onReport(); }}
+              className="w-full flex items-center gap-2.5 px-3 py-2.5 text-xs text-muted-foreground hover:bg-white/5 hover:text-foreground transition-colors"
+            >
+              <Flag className="w-3.5 h-3.5 text-amber-400" />
+              Report a problem
+            </button>
+            <div className="h-px bg-white/5 mx-2" />
+            <button
+              onClick={() => { setOpen(false); onSignOut(); }}
+              className="w-full flex items-center gap-2.5 px-3 py-2.5 text-xs text-muted-foreground hover:bg-white/5 hover:text-red-400 transition-colors"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              Log out
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+function Sidebar({ isOpen, onClose, onNewChat, sessions, setSessions, onSelectSession, onSelectPrompt, onDeleteSession, user, onSignOut, onReport }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [expandedSession, setExpandedSession] = useState(null);
   const [editingId, setEditingId] = useState(null);
@@ -171,6 +351,7 @@ function Sidebar({ isOpen, onClose, onNewChat, sessions, setSessions, onSelectSe
               </button>
             </div>
 
+            {/* ── CHANGED: user row now has three-dot menu ── */}
             {user && (
               <div className="px-3 py-3 border-b border-white/5">
                 <div className="flex items-center gap-2 px-2 py-1.5">
@@ -186,11 +367,8 @@ function Sidebar({ isOpen, onClose, onNewChat, sessions, setSessions, onSelectSe
                     </p>
                     <p className="text-[10px] text-muted-foreground truncate">{user.email}</p>
                   </div>
-                  <button onClick={onSignOut}
-                    className="p-1.5 rounded-lg hover:bg-white/10 text-muted-foreground hover:text-red-400 transition-colors"
-                    title="Sign out">
-                    <LogOut className="w-3.5 h-3.5" />
-                  </button>
+                  {/* Three-dot menu replaces the old LogOut button */}
+                  <UserMenu user={user} onSignOut={onSignOut} onReport={onReport} />
                 </div>
               </div>
             )}
@@ -342,16 +520,16 @@ function App() {
   const [showScrollBottom, setShowScrollBottom] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
 
-  // ── About panel state ──
+  // ── Panel / modal state ──
   const [aboutOpen, setAboutOpen] = useState(false);
   const [aboutScrollToContact, setAboutScrollToContact] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
 
   const bottomRef = useRef(null);
   const topRef = useRef(null);
   const chatRef = useRef(null);
 
   const getAuthHeaders = () => user ? { "X-User-Id": user.id } : {};
-
   const openAbout = () => { setAboutScrollToContact(false); setAboutOpen(true); };
   const openContact = () => { setAboutScrollToContact(true); setAboutOpen(true); };
 
@@ -570,21 +748,10 @@ function App() {
     return (
       <div className="app-bg">
         <div className="noise-overlay" />
-
-        {/* About/Contact slide panel */}
-        <AboutPanel
-          isOpen={aboutOpen}
-          onClose={() => setAboutOpen(false)}
-          scrollToContact={aboutScrollToContact}
-        />
+        <AboutPanel isOpen={aboutOpen} onClose={() => setAboutOpen(false)} scrollToContact={aboutScrollToContact} />
 
         <div className="relative z-10 w-full flex items-center justify-center px-4" style={{ minHeight: "100vh" }}>
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="w-full max-w-md"
-          >
-            {/* Branding above card */}
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="w-full max-w-md">
             <div className="flex items-center gap-4 mb-5 px-1">
               <img src="/logo.png" alt="PaperBrain" className="w-16 h-16 object-contain" />
               <span className="text-4xl font-bold text-foreground">
@@ -592,38 +759,19 @@ function App() {
               </span>
             </div>
 
-            {/* Card */}
             <div className="bg-[#0a0a0a] border border-white/10 rounded-2xl overflow-hidden">
-
-              {/* TOP PANEL — auth form */}
               <div className="p-6">
                 <Auth />
                 <div className="mt-4 pt-4 border-t border-white/5 text-center">
-                  <button
-                    onClick={handleGuestMode}
-                    className="text-xs text-muted-foreground hover:text-indigo-400 transition-colors"
-                  >
+                  <button onClick={handleGuestMode} className="text-xs text-muted-foreground hover:text-indigo-400 transition-colors">
                     Try as guest <span className="text-muted-foreground/50">(1 free prompt)</span>
                   </button>
                 </div>
               </div>
-
-              {/* BOTTOM PANEL — About us + Contact, centered, open slide panel */}
               <div className="border-t border-white/10 bg-white/[0.02] px-6 py-4 flex items-center justify-center gap-5">
-                <button
-                  onClick={openAbout}
-                  className="text-xs text-muted-foreground hover:text-indigo-400 transition-colors"
-                >
-                  About us
-                </button>
-                <button
-                  onClick={openContact}
-                  className="text-xs text-muted-foreground hover:text-indigo-400 transition-colors"
-                >
-                  Contact
-                </button>
+                <button onClick={openAbout} className="text-xs text-muted-foreground hover:text-indigo-400 transition-colors">About us</button>
+                <button onClick={openContact} className="text-xs text-muted-foreground hover:text-indigo-400 transition-colors">Contact</button>
               </div>
-
             </div>
           </motion.div>
         </div>
@@ -642,12 +790,8 @@ function App() {
     <div className="app-bg">
       <div className="noise-overlay" />
 
-      {/* About panel available app-wide too */}
-      <AboutPanel
-        isOpen={aboutOpen}
-        onClose={() => setAboutOpen(false)}
-        scrollToContact={aboutScrollToContact}
-      />
+      <AboutPanel isOpen={aboutOpen} onClose={() => setAboutOpen(false)} scrollToContact={aboutScrollToContact} />
+      <ReportModal isOpen={reportOpen} onClose={() => setReportOpen(false)} userEmail={user?.email} />
 
       <AnimatePresence>
         {showAuthModal && <Auth isModal={true} onClose={() => setShowAuthModal(false)} />}
@@ -658,6 +802,7 @@ function App() {
         onNewChat={() => clearResults()} sessions={sessions} setSessions={setSessions}
         onSelectSession={handleSelectSession} onSelectPrompt={handleSelectPrompt}
         onDeleteSession={handleDeleteSession} user={user} onSignOut={handleSignOut}
+        onReport={() => setReportOpen(true)}
       />
 
       <div className="fixed top-4 left-4 z-20"><HamburgerButton /></div>
@@ -667,9 +812,7 @@ function App() {
           <span className="text-xs text-indigo-300">
             You're in guest mode — {guestPromptCount >= 1 ? "Sign in to continue using PaperBrain" : "1 free prompt remaining"}
             {" "}
-            <button onClick={() => setShowAuthModal(true)} className="underline hover:text-white transition-colors">
-              Sign in now
-            </button>
+            <button onClick={() => setShowAuthModal(true)} className="underline hover:text-white transition-colors">Sign in now</button>
           </span>
         </div>
       )}
@@ -705,8 +848,7 @@ function App() {
               <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }} className="text-center mb-8">
                 <div className="flex items-center justify-center gap-3 mb-4">
                   <img src="/logo.png" alt="PaperBrain" className="w-16 h-16 object-contain" />
-                  <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight text-foreground"
-                    style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+                  <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight text-foreground" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
                     Paper<span className="text-indigo-400">Brain</span>
                   </h1>
                 </div>

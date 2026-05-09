@@ -866,6 +866,7 @@ async def get_session_details(session_id: str):
 @api_router.delete("/sessions/{session_id}")
 async def delete_session(session_id: str):
     await sb_delete("sessions", {"session_id": session_id})
+    await sb_delete("history", {"session_id": session_id})
     return {"message": "Session deleted"}
 
 app.include_router(api_router)

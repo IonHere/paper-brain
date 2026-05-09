@@ -5,11 +5,124 @@ import SearchBox from "./components/SearchBox";
 import ResultDisplay from "./components/ResultDisplay";
 import Auth from "./components/Auth";
 import { supabase } from "./lib/supabaseClient";
-import { Menu, X, Plus, Search, ChevronDown, ChevronUp, ArrowUp, ArrowDown, Clock, Pencil, Trash2, Upload, LogOut, User } from "lucide-react";
+import { Menu, X, Plus, Search, ChevronDown, ChevronUp, ArrowUp, ArrowDown, Clock, Pencil, Trash2, Upload, LogOut, User, Mail } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import axios from "axios";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
+
+// ── About / Contact slide panel ──
+function AboutPanel({ isOpen, onClose, scrollToContact }) {
+  const contactRef = useRef(null);
+  const [highlighted, setHighlighted] = useState(false);
+
+  useEffect(() => {
+    if (isOpen && scrollToContact) {
+      setTimeout(() => {
+        contactRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+        setHighlighted(true);
+        setTimeout(() => setHighlighted(false), 1000);
+      }, 300);
+    }
+  }, [isOpen, scrollToContact]);
+
+  return (
+    <>
+      {/* Backdrop */}
+      <AnimatePresence>
+        {isOpen && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="fixed inset-0 bg-black/50 z-40 backdrop-blur-sm"
+            onClick={onClose}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Slide panel from left */}
+      <AnimatePresence>
+        {isOpen && (
+          <motion.div
+            initial={{ x: "-100%" }} animate={{ x: 0 }} exit={{ x: "-100%" }}
+            transition={{ type: "spring", damping: 28, stiffness: 220 }}
+            className="fixed left-0 top-0 bottom-0 w-80 z-50 bg-[#0a0a0a] border-r border-white/10 flex flex-col overflow-y-auto"
+          >
+            {/* Close button */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-white/10">
+              <span className="text-xs text-muted-foreground font-medium tracking-wide uppercase">Info</span>
+              <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-white/10 text-muted-foreground hover:text-foreground transition-colors">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="flex flex-col items-center px-6 py-8 gap-4 flex-1">
+
+              {/* Logo */}
+              <img src="/logo.png" alt="PaperBrain" className="w-20 h-20 object-contain" />
+
+              {/* Brand name */}
+              <h2 className="text-2xl font-bold text-foreground">
+                Paper<span className="text-indigo-400">Brain</span>
+              </h2>
+
+              {/* Divider */}
+              <div className="w-full h-px bg-white/10 my-2" />
+
+              {/* About us section */}
+              <div className="w-full">
+                <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-widest mb-3">About us</h3>
+                <p className="text-sm text-foreground/80 leading-relaxed">
+                  PaperBrain is an AI-powered document assistant that helps you understand, summarize, and interact with your PDFs — privately and securely.
+                </p>
+                <p className="text-sm text-foreground/60 leading-relaxed mt-3">
+                  Built for students, researchers, and professionals who need to extract insights from documents quickly.
+                </p>
+              </div>
+
+              {/* Divider */}
+              <div className="w-full h-px bg-white/10 my-2" />
+
+              {/* Contact section */}
+              <div className="w-full" ref={contactRef}>
+                <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-widest mb-3">Contact</h3>
+
+                {/* Email with tooltip + highlight animation */}
+                <motion.div
+                  animate={highlighted ? { backgroundColor: "rgba(99,102,241,0.15)" } : { backgroundColor: "rgba(255,255,255,0)" }}
+                  transition={{ duration: 0.3 }}
+                  className="rounded-xl p-3"
+                >
+                  <div className="relative group w-full">
+                    <a
+                      href="mailto:paperbrain.support@gmail.com"
+                      className="flex items-center gap-3 w-full px-4 py-3 rounded-xl border border-white/10 bg-white/5 hover:bg-indigo-500/10 hover:border-indigo-500/30 transition-colors"
+                    >
+                      <Mail className="w-4 h-4 text-indigo-400 shrink-0" />
+                      <span className="text-sm text-foreground/80 truncate">paperbrain.support@gmail.com</span>
+                    </a>
+
+                    {/* Hover tooltip */}
+                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-1.5 bg-[#1a1a1a] border border-white/10 rounded-lg text-xs text-muted-foreground whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
+                      Email us at paperbrain.support@gmail.com
+                      <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-[#1a1a1a]" />
+                    </div>
+                  </div>
+                </motion.div>
+              </div>
+
+            </div>
+
+            {/* Footer */}
+            <div className="px-5 py-4 border-t border-white/10">
+              <p className="text-[10px] text-muted-foreground/40 text-center">PaperBrain · AI Document Assistant</p>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </>
+  );
+}
 
 function Sidebar({ isOpen, onClose, onNewChat, sessions, setSessions, onSelectSession, onSelectPrompt, onDeleteSession, user, onSignOut }) {
   const [searchQuery, setSearchQuery] = useState("");
@@ -228,11 +341,19 @@ function App() {
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [showScrollBottom, setShowScrollBottom] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
+
+  // ── About panel state ──
+  const [aboutOpen, setAboutOpen] = useState(false);
+  const [aboutScrollToContact, setAboutScrollToContact] = useState(false);
+
   const bottomRef = useRef(null);
   const topRef = useRef(null);
   const chatRef = useRef(null);
 
   const getAuthHeaders = () => user ? { "X-User-Id": user.id } : {};
+
+  const openAbout = () => { setAboutScrollToContact(false); setAboutOpen(true); };
+  const openContact = () => { setAboutScrollToContact(true); setAboutOpen(true); };
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -445,18 +566,25 @@ function App() {
   }
 
   // ── Full auth screen ──
-  // CHANGED: centered (removed ml-auto mr-[8%]), bigger logo above card
   if (!user && !isGuest) {
     return (
       <div className="app-bg">
         <div className="noise-overlay" />
+
+        {/* About/Contact slide panel */}
+        <AboutPanel
+          isOpen={aboutOpen}
+          onClose={() => setAboutOpen(false)}
+          scrollToContact={aboutScrollToContact}
+        />
+
         <div className="relative z-10 w-full flex items-center justify-center px-4" style={{ minHeight: "100vh" }}>
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             className="w-full max-w-md"
           >
-            {/* Branding ABOVE card — logo fills width of card */}
+            {/* Branding above card */}
             <div className="flex items-center gap-4 mb-5 px-1">
               <img src="/logo.png" alt="PaperBrain" className="w-16 h-16 object-contain" />
               <span className="text-4xl font-bold text-foreground">
@@ -480,20 +608,20 @@ function App() {
                 </div>
               </div>
 
-              {/* BOTTOM PANEL — centered About us + Contact */}
+              {/* BOTTOM PANEL — About us + Contact, centered, open slide panel */}
               <div className="border-t border-white/10 bg-white/[0.02] px-6 py-4 flex items-center justify-center gap-5">
                 <button
-                  onClick={() => alert("PaperBrain is an AI-powered document assistant that helps you understand, summarize, and interact with your PDFs.")}
+                  onClick={openAbout}
                   className="text-xs text-muted-foreground hover:text-indigo-400 transition-colors"
                 >
                   About us
                 </button>
-                <a
-                  href="mailto:paperbrain.support@gmail.com"
+                <button
+                  onClick={openContact}
                   className="text-xs text-muted-foreground hover:text-indigo-400 transition-colors"
                 >
                   Contact
-                </a>
+                </button>
               </div>
 
             </div>
@@ -513,6 +641,13 @@ function App() {
   return (
     <div className="app-bg">
       <div className="noise-overlay" />
+
+      {/* About panel available app-wide too */}
+      <AboutPanel
+        isOpen={aboutOpen}
+        onClose={() => setAboutOpen(false)}
+        scrollToContact={aboutScrollToContact}
+      />
 
       <AnimatePresence>
         {showAuthModal && <Auth isModal={true} onClose={() => setShowAuthModal(false)} />}

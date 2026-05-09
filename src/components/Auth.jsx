@@ -69,11 +69,10 @@ export default function Auth({ onClose, isModal = false }) {
     if (error) { setMessage({ type: "error", text: error.message }); setLoading(false); }
   };
 
+  // No logo here — App.js shows branding above card for non-modal
+  // Modal injects its own logo header below
   const content = (
     <div style={{ width: "100%", maxWidth: "400px", margin: "0 auto" }}>
-
-      {/* ── CHANGED: logo/name removed here — App.js shows it above card for non-modal,
-                     modal injects its own header before {content} below ── */}
 
       <h2 className="text-3xl font-bold text-foreground mb-1">
         {mode === "signin" ? "Welcome" : mode === "signup" ? "Create account" : "Reset password"}
@@ -212,7 +211,7 @@ export default function Auth({ onClose, isModal = false }) {
     </div>
   );
 
-  // ── CHANGED: Modal gets its own logo header + X button above content ──
+  // Modal — shows logo + X button above content
   if (isModal) {
     return (
       <motion.div
@@ -229,7 +228,7 @@ export default function Auth({ onClose, isModal = false }) {
           transition={{ duration: 0.2 }}
           className="w-full max-w-md bg-[#0a0a0a] border border-white/10 rounded-2xl p-6"
         >
-          {/* Logo + close button — only in modal */}
+          {/* Logo + close — only in modal */}
           <div className="flex items-center justify-between mb-6">
             <div className="flex items-center gap-2">
               <img src="/logo.png" alt="PaperBrain" className="w-8 h-8 object-contain" />
@@ -247,6 +246,6 @@ export default function Auth({ onClose, isModal = false }) {
     );
   }
 
-  // Non-modal: App.js owns the card shell and shows branding above
+  // Non-modal: App.js owns the card shell and branding above
   return <>{content}</>;
 }

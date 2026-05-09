@@ -239,35 +239,23 @@ function App() {
       setUser(session?.user ?? null);
       setAuthLoading(false);
     });
-
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
       setShowAuthModal(false);
       setShowFullAuth(false);
-      if (session?.user) {
-        setIsGuest(false);
-        setGuestPromptCount(0);
-      }
+      if (session?.user) { setIsGuest(false); setGuestPromptCount(0); }
     });
-
     return () => subscription.unsubscribe();
   }, []);
 
-  useEffect(() => {
-    if (user) fetchHistory();
-  }, [user]);
+  useEffect(() => { if (user) fetchHistory(); }, [user]);
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
-    setUser(null);
-    setSessions([]);
-    clearResults();
+    setUser(null); setSessions([]); clearResults();
   };
 
-  const handleGuestMode = () => {
-    setIsGuest(true);
-    setShowFullAuth(false);
-  };
+  const handleGuestMode = () => { setIsGuest(true); setShowFullAuth(false); };
 
   const fetchHistory = async () => {
     try {
@@ -285,63 +273,37 @@ function App() {
           const name = item.query ? item.query.slice(0, 35) : item.source_preview ? item.source_preview.slice(0, 35) : date;
           grouped[key] = { id: key, label: name, date, prompts: [], full_text: item.full_text || "", filename: item.filename || "" };
         }
-
         let parsedImages = [];
         if (item.images_data) {
-          try {
-            parsedImages = typeof item.images_data === "string"
-              ? JSON.parse(item.images_data)
-              : item.images_data;
-          } catch {}
+          try { parsedImages = typeof item.images_data === "string" ? JSON.parse(item.images_data) : item.images_data; } catch {}
         }
-
         let parsedSections = null;
         if (item.sections_data) {
           try {
-            const raw = typeof item.sections_data === "string"
-              ? JSON.parse(item.sections_data)
-              : item.sections_data;
-            if (Array.isArray(raw) && raw[0]?.sections) {
-              parsedSections = raw[0].sections;
-            } else if (Array.isArray(raw) && raw[0]?.text) {
-              parsedSections = raw;
-            }
+            const raw = typeof item.sections_data === "string" ? JSON.parse(item.sections_data) : item.sections_data;
+            if (Array.isArray(raw) && raw[0]?.sections) parsedSections = raw[0].sections;
+            else if (Array.isArray(raw) && raw[0]?.text) parsedSections = raw;
           } catch {}
         }
-
         grouped[key].prompts.push({
-          id: item.id,
-          mode: item.mode,
-          result: item.result,
-          timestamp: item.timestamp,
-          inputQuery: item.query,
-          inputQuestion: item.question,
-          inputAnswer: item.answer,
-          sourceText: item.full_text || "",
-          filename: item.filename || "",
-          analyzed_images: parsedImages,
-          sections: parsedSections,
+          id: item.id, mode: item.mode, result: item.result, timestamp: item.timestamp,
+          inputQuery: item.query, inputQuestion: item.question, inputAnswer: item.answer,
+          sourceText: item.full_text || "", filename: item.filename || "",
+          analyzed_images: parsedImages, sections: parsedSections,
         });
       });
 
-      Object.keys(grouped).forEach(key => {
-        grouped[key].prompts.reverse();
-      });
-
+      Object.keys(grouped).forEach(key => { grouped[key].prompts.reverse(); });
       const savedLabelsMap = {};
       savedSessions.forEach(s => { savedLabelsMap[s.session_id] = s; });
-
       const historySessions = Object.values(grouped).map(s => ({
         ...s,
         label: savedLabelsMap[s.id]?.label || s.label,
         full_text: savedLabelsMap[s.id]?.full_text || s.full_text,
         filename: savedLabelsMap[s.id]?.filename || s.filename,
       })).sort((a, b) => new Date(b.date) - new Date(a.date));
-
       setSessions(historySessions);
-    } catch (err) {
-      console.error("Failed to fetch history", err);
-    }
+    } catch (err) { console.error("Failed to fetch history", err); }
   };
 
   useEffect(() => {
@@ -351,16 +313,12 @@ function App() {
       if (!currentSessionId) setCurrentSessionId(sessionId);
       const sessionLabel = sourceInfo?.filename || "New Session";
       const sessionDate = new Date().toLocaleDateString();
-
       setSessions(prev => {
         const existing = prev.find(s => s.id === sessionId);
         if (existing) return prev.map(s => s.id === sessionId ? { ...s, prompts: results } : s);
         else {
           if (user) {
-            axios.post(`${API}/sessions`, {
-              id: sessionId, label: sessionLabel, date: sessionDate,
-              full_text: sourceText, filename: sourceInfo?.filename || ""
-            }, { headers: getAuthHeaders() })
+            axios.post(`${API}/sessions`, { id: sessionId, label: sessionLabel, date: sessionDate, full_text: sourceText, filename: sourceInfo?.filename || "" }, { headers: getAuthHeaders() })
               .catch(err => console.error("Failed to save session", err));
           }
           return [{ id: sessionId, label: sessionLabel, date: sessionDate, prompts: results, full_text: sourceText, filename: sourceInfo?.filename || "" }, ...prev];
@@ -370,26 +328,16 @@ function App() {
   }, [results]);
 
   const handleResult = (result) => {
-    if (isGuest && guestPromptCount >= 1) {
-      setShowAuthModal(true);
-      return;
-    }
+    if (isGuest && guestPromptCount >= 1) { setShowAuthModal(true); return; }
     if (!hasStarted) setHasStarted(true);
-
-    const enrichedResult = {
-      ...result,
-      analyzed_images: result.analyzed_images || [],
-      sections: result.sections || null,
-    };
-
+    const enrichedResult = { ...result, analyzed_images: result.analyzed_images || [], sections: result.sections || null };
     setResults((prev) => [...prev, enrichedResult]);
     if (isGuest) setGuestPromptCount(prev => prev + 1);
   };
 
   const handleRegenerate = (id, newResult) => {
     setResults(prev => prev.map(r => r.id === id ? {
-      ...r,
-      ...newResult,
+      ...r, ...newResult,
       analyzed_images: newResult.analyzed_images || r.analyzed_images || [],
       sections: newResult.sections || r.sections || null,
     } : r));
@@ -397,9 +345,7 @@ function App() {
 
   const handleDeleteResult = async (id) => {
     setResults(prev => prev.filter(r => r.id !== id));
-    try {
-      await axios.delete(`${API}/history/${id}`, { headers: getAuthHeaders() });
-    } catch (err) { console.error(err); }
+    try { await axios.delete(`${API}/history/${id}`, { headers: getAuthHeaders() }); } catch (err) { console.error(err); }
   };
 
   const clearResults = () => {
@@ -409,9 +355,7 @@ function App() {
 
   const handleDeleteSession = async (sessionId) => {
     setSessions(prev => prev.filter(s => s.id !== sessionId));
-    try {
-      await axios.delete(`${API}/sessions/${sessionId}`, { headers: getAuthHeaders() });
-    } catch (err) { console.error(err); }
+    try { await axios.delete(`${API}/sessions/${sessionId}`, { headers: getAuthHeaders() }); } catch (err) { console.error(err); }
   };
 
   const restoreSession = (session) => {
@@ -433,17 +377,13 @@ function App() {
   };
 
   const handleSelectSession = (session) => {
-    setHasStarted(true);
-    setResults(session.prompts);
-    setCurrentSessionId(session.id);
+    setHasStarted(true); setResults(session.prompts); setCurrentSessionId(session.id);
     restoreSession(session);
     setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
   };
 
   const handleSelectPrompt = (session, promptIndex) => {
-    setHasStarted(true);
-    setResults(session.prompts);
-    setCurrentSessionId(session.id);
+    setHasStarted(true); setResults(session.prompts); setCurrentSessionId(session.id);
     restoreSession(session);
     setTimeout(() => {
       const cards = document.querySelectorAll("[data-testid^='result-card-']");
@@ -505,6 +445,7 @@ function App() {
   }
 
   // ── Full auth screen ──
+  // CHANGED: centered (removed ml-auto mr-[8%]), bigger logo above card
   if (!user && !isGuest) {
     return (
       <div className="app-bg">
@@ -513,12 +454,12 @@ function App() {
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="w-full max-w-md ml-auto mr-[8%]"
+            className="w-full max-w-md"
           >
-            {/* Branding ABOVE the card — bigger logo */}
-            <div className="flex items-center gap-3 mb-5 px-1">
-              <img src="/logo.png" alt="PaperBrain" className="w-14 h-14 object-contain" />
-              <span className="text-3xl font-bold text-foreground">
+            {/* Branding ABOVE card — logo fills width of card */}
+            <div className="flex items-center gap-4 mb-5 px-1">
+              <img src="/logo.png" alt="PaperBrain" className="w-16 h-16 object-contain" />
+              <span className="text-4xl font-bold text-foreground">
                 Paper<span className="text-indigo-400">Brain</span>
               </span>
             </div>
@@ -529,8 +470,6 @@ function App() {
               {/* TOP PANEL — auth form */}
               <div className="p-6">
                 <Auth />
-
-                {/* Try as guest */}
                 <div className="mt-4 pt-4 border-t border-white/5 text-center">
                   <button
                     onClick={handleGuestMode}
@@ -541,7 +480,7 @@ function App() {
                 </div>
               </div>
 
-              {/* BOTTOM PANEL — About us + Contact only, no logo */}
+              {/* BOTTOM PANEL — centered About us + Contact */}
               <div className="border-t border-white/10 bg-white/[0.02] px-6 py-4 flex items-center justify-center gap-5">
                 <button
                   onClick={() => alert("PaperBrain is an AI-powered document assistant that helps you understand, summarize, and interact with your PDFs.")}
@@ -576,9 +515,7 @@ function App() {
       <div className="noise-overlay" />
 
       <AnimatePresence>
-        {showAuthModal && (
-          <Auth isModal={true} onClose={() => setShowAuthModal(false)} />
-        )}
+        {showAuthModal && <Auth isModal={true} onClose={() => setShowAuthModal(false)} />}
       </AnimatePresence>
 
       <Sidebar

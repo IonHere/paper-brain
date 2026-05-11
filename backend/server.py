@@ -180,6 +180,14 @@ class SessionRequest(BaseModel):
     full_text: Optional[str] = None
     filename: Optional[str] = None
 
+# ── NEW: Project model ──
+class ProjectRequest(BaseModel):
+    id: str
+    label: str
+    date: str
+    color_name: Optional[str] = "indigo"
+    session_ids: Optional[List[str]] = []
+
 # ─────────────────────────────────────────────
 # MAIN MODEL — Groq text generation
 # ─────────────────────────────────────────────
@@ -267,8 +275,6 @@ async def extract_handwritten_text(image_base64: str) -> str:
 # ─────────────────────────────────────────────
 # Image matching logic — smarter relevance
 # ─────────────────────────────────────────────
-
-# Keywords that indicate the user is explicitly asking about a visual
 VISUAL_INTENT_WORDS = {
     "diagram", "figure", "chart", "graph", "image", "picture", "illustration",
     "table", "schematic", "drawing", "show", "depicted", "shown", "visual",
@@ -276,14 +282,12 @@ VISUAL_INTENT_WORDS = {
 }
 
 def query_requests_visual(query: str) -> bool:
-    """Check if the user's query is explicitly asking about a diagram or image."""
     if not query:
         return False
     words = set(re.findall(r'\b\w+\b', query.lower()))
     return bool(words & VISUAL_INTENT_WORDS)
 
 def extract_keywords(text: str) -> set:
-    # Extract meaningful words — longer than 4 chars, exclude common stopwords
     stopwords = {
         "with", "this", "that", "from", "have", "which", "they", "will",
         "been", "their", "there", "when", "also", "each", "about", "into",
@@ -297,8 +301,6 @@ def find_best_image_for_section(section_text: str, analyzed_images: list, used_i
     if not analyzed_images:
         return None
 
-    # ── Priority 1: Match by figure number explicitly mentioned in text ──
-    # e.g. "Figure 12-2", "Fig. 3", "figure 5a"
     figure_refs = re.findall(r'fig(?:ure)?\.?\s*[\d]+[\-\.]?[\d]*[a-z]?', section_text.lower())
     if figure_refs:
         for i, img in enumerate(analyzed_images):
@@ -306,13 +308,11 @@ def find_best_image_for_section(section_text: str, analyzed_images: list, used_i
                 continue
             desc = img.get("description", "").lower()
             for ref in figure_refs:
-                # Normalize ref for comparison
                 ref_clean = re.sub(r'\s+', ' ', ref).strip()
                 if ref_clean in desc:
                     used_images.add(i)
                     return {"page": img["page"], "data": img["data"]}
 
-    # ── Priority 2: Match by page number if text mentions a specific page ──
     page_refs = re.findall(r'page\s+(\d+)', section_text.lower())
     if page_refs:
         for i, img in enumerate(analyzed_images):
@@ -322,7 +322,6 @@ def find_best_image_for_section(section_text: str, analyzed_images: list, used_i
                 used_images.add(i)
                 return {"page": img["page"], "data": img["data"]}
 
-    # ── Priority 3: Keyword overlap with tighter thresholds ──
     visual_query = query_requests_visual(query)
     section_keywords = extract_keywords(section_text)
     if not section_keywords:
@@ -340,12 +339,8 @@ def find_best_image_for_section(section_text: str, analyzed_images: list, used_i
 
         desc_keywords = extract_keywords(desc)
         overlap = len(section_keywords & desc_keywords)
-
-        # Score relative to section size
         score = overlap / max(len(section_keywords), 1)
 
-        # Tighter thresholds — require strong relevance to avoid wrong image matches
-        # Visual queries (user asked for diagram/figure) get slightly lower bar
         min_overlap = 3 if visual_query else 5
         min_score = 0.12 if visual_query else 0.20
 
@@ -546,7 +541,6 @@ async def upload_pdf(file: UploadFile = File(...)):
                         aspect_ratio = width / height if height > 0 else 0
                         if aspect_ratio > 4 or aspect_ratio < 0.2:
                             continue
-                        # ── FIX: expand crop to capture figure captions above/below ──
                         page_height = page.height
                         top_expanded = max(top - 10, 0)
                         bottom_expanded = min(bottom + 40, page_height)
@@ -655,7 +649,6 @@ async def process_text(request: ProcessRequest, user_id: Optional[str] = Header(
 
     sectioned_results = []
     for r in results:
-        # Pass query into section builder so visual intent is detected
         sections = build_sections_with_images(r["result"], analyzed_images, mode, query or "")
         sectioned_results.append({
             "filename": r.get("filename", "Document"),
@@ -869,6 +862,41 @@ async def delete_session(session_id: str):
     await sb_delete("history", {"session_id": session_id})
     return {"message": "Session deleted"}
 
+# ─────────────────────────────────────────────
+# ── NEW: Project routes ──
+# ─────────────────────────────────────────────
+@api_router.get("/projects")
+async def get_projects(user_id: Optional[str] = Header(None, alias="X-User-Id")):
+    rows = await sb_select("projects", order="created_at", limit=100)
+    if not rows:
+        return []
+    if user_id:
+        rows = [r for r in rows if r.get("user_id") == user_id]
+    else:
+        rows = [r for r in rows if not r.get("user_id")]
+    return rows
+
+@api_router.post("/projects")
+async def save_project(
+    request: ProjectRequest,
+    user_id: Optional[str] = Header(None, alias="X-User-Id")
+):
+    await sb_upsert("projects", {
+        "id": request.id,
+        "label": request.label,
+        "date": request.date,
+        "color_name": request.color_name,
+        "session_ids": request.session_ids,
+        "user_id": user_id
+    }, on_conflict="id")
+    return {"message": "Project saved"}
+
+@api_router.delete("/projects/{project_id}")
+async def delete_project(project_id: str):
+    await sb_delete("projects", {"id": project_id})
+    return {"message": "Project deleted"}
+
+# ─────────────────────────────────────────────
 app.include_router(api_router)
 
 app.add_middleware(

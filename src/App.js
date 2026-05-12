@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import "./App.css";
 import SourceInput from "./components/SourceInput";
 import SearchBox from "./components/SearchBox";
@@ -26,6 +26,109 @@ const PROJECT_COLORS = [
   { name: "orange", bg: "bg-orange-500/20", border: "border-orange-500/40", dot: "bg-orange-400", text: "text-orange-300", hex: "#fb923c" },
   { name: "pink", bg: "bg-pink-500/20", border: "border-pink-500/40", dot: "bg-pink-400", text: "text-pink-300", hex: "#f472b6" },
 ];
+
+// ── Fixed context menu (rendered at document root level via portal-style fixed div) ──
+// Accepts { type, id, x, y, inProject, projectId } or null
+function FixedMenu({ menu, onClose, onRenameSession, onDeleteSession, onRemoveFromProject,
+  onRenameProject, onAddSessions, onDeleteProject }) {
+
+  const menuRef = useRef(null);
+
+  // Close on outside click
+  useEffect(() => {
+    if (!menu) return;
+    const handle = (e) => {
+      if (menuRef.current && !menuRef.current.contains(e.target)) onClose();
+    };
+    // Use mousedown so it fires before onClick bubbles close
+    document.addEventListener("mousedown", handle);
+    return () => document.removeEventListener("mousedown", handle);
+  }, [menu, onClose]);
+
+  // Close on scroll (sidebar scrolls, menu would drift)
+  useEffect(() => {
+    if (!menu) return;
+    const handle = () => onClose();
+    window.addEventListener("scroll", handle, true);
+    return () => window.removeEventListener("scroll", handle, true);
+  }, [menu, onClose]);
+
+  if (!menu) return null;
+
+  // Clamp to viewport so it never goes off-screen
+  const MENU_WIDTH = 176; // w-44
+  const MENU_HEIGHT = menu.type === "session" ? (menu.inProject ? 108 : 72) : 108;
+  const viewportW = window.innerWidth;
+  const viewportH = window.innerHeight;
+
+  let left = menu.x;
+  let top = menu.y;
+
+  // Flip left if overflows right edge
+  if (left + MENU_WIDTH > viewportW - 8) left = menu.x - MENU_WIDTH - (menu.buttonWidth || 0);
+  // Flip up if overflows bottom edge
+  if (top + MENU_HEIGHT > viewportH - 8) top = menu.y - MENU_HEIGHT;
+
+  return (
+    <motion.div
+      ref={menuRef}
+      initial={{ opacity: 0, scale: 0.95, y: -4 }}
+      animate={{ opacity: 1, scale: 1, y: 0 }}
+      exit={{ opacity: 0, scale: 0.95, y: -4 }}
+      transition={{ duration: 0.12 }}
+      style={{ position: "fixed", top, left, zIndex: 9999, width: MENU_WIDTH }}
+      className="bg-[#111] border border-white/10 rounded-xl overflow-hidden shadow-xl"
+    >
+      {menu.type === "session" && (
+        <>
+          <button
+            onClick={() => { onRenameSession(menu.id); onClose(); }}
+            className="w-full flex items-center gap-2 px-3 py-2.5 text-[11px] text-muted-foreground hover:bg-white/5 hover:text-foreground transition-colors"
+          >
+            <Pencil className="w-3 h-3" />Rename
+          </button>
+          {menu.inProject && menu.projectId && (
+            <button
+              onClick={() => { onRemoveFromProject(menu.id, menu.projectId); onClose(); }}
+              className="w-full flex items-center gap-2 px-3 py-2.5 text-[11px] text-muted-foreground hover:bg-white/5 hover:text-amber-400 transition-colors"
+            >
+              <MinusCircle className="w-3 h-3" />Remove from project
+            </button>
+          )}
+          <button
+            onClick={() => { onDeleteSession(menu.id); onClose(); }}
+            className="w-full flex items-center gap-2 px-3 py-2.5 text-[11px] text-muted-foreground hover:bg-white/5 hover:text-red-400 transition-colors"
+          >
+            <Trash2 className="w-3 h-3" />Delete
+          </button>
+        </>
+      )}
+
+      {menu.type === "project" && (
+        <>
+          <button
+            onClick={() => { onRenameProject(menu.id); onClose(); }}
+            className="w-full flex items-center gap-2 px-3 py-2.5 text-[11px] text-muted-foreground hover:bg-white/5 hover:text-foreground transition-colors"
+          >
+            <Pencil className="w-3 h-3" />Rename
+          </button>
+          <button
+            onClick={() => { onAddSessions(menu.id); onClose(); }}
+            className="w-full flex items-center gap-2 px-3 py-2.5 text-[11px] text-muted-foreground hover:bg-white/5 hover:text-foreground transition-colors"
+          >
+            <Plus className="w-3 h-3" />Add sessions
+          </button>
+          <button
+            onClick={() => { onDeleteProject(menu.id); onClose(); }}
+            className="w-full flex items-center gap-2 px-3 py-2.5 text-[11px] text-muted-foreground hover:bg-white/5 hover:text-red-400 transition-colors"
+          >
+            <Trash2 className="w-3 h-3" />Delete project
+          </button>
+        </>
+      )}
+    </motion.div>
+  );
+}
 
 // ── Report Problem Modal ──
 function ReportModal({ isOpen, onClose, userEmail }) {
@@ -373,6 +476,10 @@ function Sidebar({ isOpen, onClose, onNewChat, sessions, setSessions, onSelectSe
   const [addSessionsProject, setAddSessionsProject] = useState(null);
   const [deleteProjectTarget, setDeleteProjectTarget] = useState(null);
 
+  // ── Fixed menu state ──
+  // { type, id, x, y, inProject, projectId } or null
+  const [activeMenu, setActiveMenu] = useState(null);
+
   const authHeaders = user ? { "X-User-Id": user.id } : {};
   const projectSessionIds = new Set(projects.flatMap(p => p.sessionIds || []));
   const freeSessions = sessions.filter(s => !projectSessionIds.has(s.id));
@@ -396,62 +503,89 @@ function Sidebar({ isOpen, onClose, onNewChat, sessions, setSessions, onSelectSe
     setProjects(prev => [newProject, ...prev]);
     setEditingProjectId(newProject.id);
     setEditProjectLabel(newProject.label);
-    // Persist immediately
     onSaveProject(newProject);
   };
 
   const getColor = (colorName) => PROJECT_COLORS.find(c => c.name === colorName) || PROJECT_COLORS[0];
 
-  const renderThreeDotSession = (session, inProject = false, projectId = null) => (
-    <div className="relative group/dots">
-      <button className="p-1 rounded hover:bg-white/10 text-muted-foreground/0 group-hover/dots:text-muted-foreground/50 hover:!text-muted-foreground transition-colors">
-        <MoreVertical className="w-3 h-3" />
-      </button>
-      <div className="absolute right-0 top-full mt-1 w-44 bg-[#111] border border-white/10 rounded-xl overflow-hidden shadow-xl z-50 hidden group-hover/dots:block">
-        <button onClick={() => { setEditingSessionId(session.id); setEditLabel(session.label); }}
-          className="w-full flex items-center gap-2 px-3 py-2 text-[11px] text-muted-foreground hover:bg-white/5 hover:text-foreground transition-colors">
-          <Pencil className="w-3 h-3" />Rename
-        </button>
-        {inProject && projectId && (
-          <button onClick={() => {
-            setProjects(prev => {
-              const updated = prev.map(p => p.id === projectId ? { ...p, sessionIds: p.sessionIds.filter(id => id !== session.id) } : p);
-              const proj = updated.find(p => p.id === projectId);
-              if (proj) onSaveProject(proj);
-              return updated;
-            });
-          }} className="w-full flex items-center gap-2 px-3 py-2 text-[11px] text-muted-foreground hover:bg-white/5 hover:text-amber-400 transition-colors">
-            <MinusCircle className="w-3 h-3" />Remove from project
-          </button>
-        )}
-        <button onClick={() => onDeleteSession(session.id)}
-          className="w-full flex items-center gap-2 px-3 py-2 text-[11px] text-muted-foreground hover:bg-white/5 hover:text-red-400 transition-colors">
-          <Trash2 className="w-3 h-3" />Delete
-        </button>
-      </div>
-    </div>
+  // ── Open fixed menu anchored to the button that was clicked ──
+  const openSessionMenu = (e, session, inProject = false, projectId = null) => {
+    e.stopPropagation();
+    const rect = e.currentTarget.getBoundingClientRect();
+    setActiveMenu({
+      type: "session",
+      id: session.id,
+      x: rect.right + 4,
+      y: rect.top,
+      inProject,
+      projectId,
+      buttonWidth: rect.width,
+    });
+  };
+
+  const openProjectMenu = (e, project) => {
+    e.stopPropagation();
+    const rect = e.currentTarget.getBoundingClientRect();
+    setActiveMenu({
+      type: "project",
+      id: project.id,
+      x: rect.right + 4,
+      y: rect.top,
+      buttonWidth: rect.width,
+    });
+  };
+
+  // ── Menu action handlers ──
+  const handleMenuRenameSession = (sessionId) => {
+    const session = sessions.find(s => s.id === sessionId);
+    if (session) { setEditingSessionId(sessionId); setEditLabel(session.label); }
+  };
+
+  const handleMenuRenameProject = (projectId) => {
+    const project = projects.find(p => p.id === projectId);
+    if (project) { setEditingProjectId(projectId); setEditProjectLabel(project.label); }
+  };
+
+  const handleMenuRemoveFromProject = (sessionId, projectId) => {
+    setProjects(prev => {
+      const updated = prev.map(p =>
+        p.id === projectId ? { ...p, sessionIds: p.sessionIds.filter(id => id !== sessionId) } : p
+      );
+      const proj = updated.find(p => p.id === projectId);
+      if (proj) onSaveProject(proj);
+      return updated;
+    });
+  };
+
+  const handleMenuAddSessions = (projectId) => {
+    const project = projects.find(p => p.id === projectId);
+    if (project) setAddSessionsProject(project);
+  };
+
+  const handleMenuDeleteProject = (projectId) => {
+    const project = projects.find(p => p.id === projectId);
+    if (project) setDeleteProjectTarget(project);
+  };
+
+  // ── Three-dot button for sessions ──
+  const ThreeDotSession = ({ session, inProject = false, projectId = null }) => (
+    <button
+      onClick={(e) => openSessionMenu(e, session, inProject, projectId)}
+      className="p-1 rounded hover:bg-white/10 text-muted-foreground/0 group-hover/sess:text-muted-foreground/50
+                 group-hover/psess:text-muted-foreground/50 hover:!text-muted-foreground transition-colors"
+    >
+      <MoreVertical className="w-3 h-3" />
+    </button>
   );
 
-  const renderThreeDotProject = (project) => (
-    <div className="relative group/pdots">
-      <button className="p-1 rounded hover:bg-white/10 text-muted-foreground/0 group-hover/pdots:text-muted-foreground/50 hover:!text-muted-foreground transition-colors">
-        <MoreVertical className="w-3 h-3" />
-      </button>
-      <div className="absolute right-0 top-full mt-1 w-44 bg-[#111] border border-white/10 rounded-xl overflow-hidden shadow-xl z-50 hidden group-hover/pdots:block">
-        <button onClick={() => { setEditingProjectId(project.id); setEditProjectLabel(project.label); }}
-          className="w-full flex items-center gap-2 px-3 py-2 text-[11px] text-muted-foreground hover:bg-white/5 hover:text-foreground transition-colors">
-          <Pencil className="w-3 h-3" />Rename
-        </button>
-        <button onClick={() => setAddSessionsProject(project)}
-          className="w-full flex items-center gap-2 px-3 py-2 text-[11px] text-muted-foreground hover:bg-white/5 hover:text-foreground transition-colors">
-          <Plus className="w-3 h-3" />Add sessions
-        </button>
-        <button onClick={() => setDeleteProjectTarget(project)}
-          className="w-full flex items-center gap-2 px-3 py-2 text-[11px] text-muted-foreground hover:bg-white/5 hover:text-red-400 transition-colors">
-          <Trash2 className="w-3 h-3" />Delete project
-        </button>
-      </div>
-    </div>
+  // ── Three-dot button for projects ──
+  const ThreeDotProject = ({ project }) => (
+    <button
+      onClick={(e) => openProjectMenu(e, project)}
+      className="p-1 rounded hover:bg-white/10 text-muted-foreground/0 group-hover/proj:text-muted-foreground/50 hover:!text-muted-foreground transition-colors"
+    >
+      <MoreVertical className="w-3 h-3" />
+    </button>
   );
 
   return (
@@ -567,7 +701,7 @@ function Sidebar({ isOpen, onClose, onNewChat, sessions, setSessions, onSelectSe
                             </div>
                           )}
                         </div>
-                        {renderThreeDotProject(project)}
+                        <ThreeDotProject project={project} />
                         <button onClick={() => setExpandedProject(expandedProject === project.id ? null : project.id)} className="text-muted-foreground">
                           {expandedProject === project.id ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
                         </button>
@@ -591,7 +725,7 @@ function Sidebar({ isOpen, onClose, onNewChat, sessions, setSessions, onSelectSe
                                   <span className="text-[11px] text-foreground truncate">{session.label}</span>
                                 </button>
                                 <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover/psess:opacity-100 transition-opacity">
-                                  {renderThreeDotSession(session, true, project.id)}
+                                  <ThreeDotSession session={session} inProject={true} projectId={project.id} />
                                   <button onClick={() => setExpandedSession(expandedSession === session.id ? null : session.id)} className="text-muted-foreground">
                                     {expandedSession === session.id ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
                                   </button>
@@ -652,7 +786,7 @@ function Sidebar({ isOpen, onClose, onNewChat, sessions, setSessions, onSelectSe
                     </div>
                     <div className="flex items-center gap-1.5 shrink-0 opacity-0 group-hover/sess:opacity-100 transition-opacity">
                       <span className="text-[10px] text-muted-foreground/50">{session.date}</span>
-                      {renderThreeDotSession(session)}
+                      <ThreeDotSession session={session} />
                       <button onClick={() => setExpandedSession(expandedSession === session.id ? null : session.id)} className="text-muted-foreground">
                         {expandedSession === session.id ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
                       </button>
@@ -694,6 +828,22 @@ function Sidebar({ isOpen, onClose, onNewChat, sessions, setSessions, onSelectSe
               <p className="text-[10px] text-muted-foreground/40 text-center">PaperBrain · AI Document Assistant</p>
             </div>
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Fixed menu — renders outside sidebar, escapes overflow:hidden ── */}
+      <AnimatePresence>
+        {activeMenu && (
+          <FixedMenu
+            menu={activeMenu}
+            onClose={() => setActiveMenu(null)}
+            onRenameSession={handleMenuRenameSession}
+            onDeleteSession={onDeleteSession}
+            onRemoveFromProject={handleMenuRemoveFromProject}
+            onRenameProject={handleMenuRenameProject}
+            onAddSessions={handleMenuAddSessions}
+            onDeleteProject={handleMenuDeleteProject}
+          />
         )}
       </AnimatePresence>
 
@@ -763,7 +913,6 @@ function App() {
   const openAbout = () => { setAboutScrollToContact(false); setAboutOpen(true); };
   const openContact = () => { setAboutScrollToContact(true); setAboutOpen(true); };
 
-  // ── Save project to backend ──
   const handleSaveProject = async (project) => {
     if (!user) return;
     try {
@@ -777,7 +926,6 @@ function App() {
     } catch (err) { console.error("Failed to save project", err); }
   };
 
-  // ── Delete project from backend ──
   const handleDeleteProject = async (projectId) => {
     if (!user) return;
     try {
@@ -853,7 +1001,6 @@ function App() {
       })).sort((a, b) => new Date(b.date) - new Date(a.date));
       setSessions(historySessions);
 
-      // ── Load projects ──
       try {
         const projectsRes = await axios.get(`${API}/projects`, { headers });
         const savedProjects = projectsRes.data || [];

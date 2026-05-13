@@ -33,16 +33,22 @@ function FixedMenu({ menu, onClose, onRenameSession, onDeleteSession, onRemoveFr
   onRenameProject, onAddSessions, onDeleteProject }) {
 
   const menuRef = useRef(null);
+  const justOpened = useRef(true);
 
-  // Close on outside click
   useEffect(() => {
     if (!menu) return;
+    justOpened.current = true;
+    const skipFirst = () => { justOpened.current = false; };
     const handle = (e) => {
+      if (justOpened.current) return;
       if (menuRef.current && !menuRef.current.contains(e.target)) onClose();
     };
-    // Use mousedown so it fires before onClick bubbles close
+    document.addEventListener("mouseup", skipFirst, { once: true });
     document.addEventListener("mousedown", handle);
-    return () => document.removeEventListener("mousedown", handle);
+    return () => {
+      document.removeEventListener("mouseup", skipFirst);
+      document.removeEventListener("mousedown", handle);
+    };
   }, [menu, onClose]);
 
   // Close on scroll (sidebar scrolls, menu would drift)
@@ -133,12 +139,23 @@ function FixedMenu({ menu, onClose, onRenameSession, onDeleteSession, onRemoveFr
 // ── Fixed color picker (escapes overflow:hidden same as FixedMenu) ──
 function FixedColorPicker({ picker, onClose, onSelect }) {
   const ref = useRef(null);
+  const justOpened = useRef(true);
 
   useEffect(() => {
     if (!picker) return;
-    const handle = (e) => { if (ref.current && !ref.current.contains(e.target)) onClose(); };
+    justOpened.current = true;
+    // Skip the first mousedown (the one that opened us)
+    const skipFirst = () => { justOpened.current = false; };
+    const handle = (e) => {
+      if (justOpened.current) return;
+      if (ref.current && !ref.current.contains(e.target)) onClose();
+    };
+    document.addEventListener("mouseup", skipFirst, { once: true });
     document.addEventListener("mousedown", handle);
-    return () => document.removeEventListener("mousedown", handle);
+    return () => {
+      document.removeEventListener("mouseup", skipFirst);
+      document.removeEventListener("mousedown", handle);
+    };
   }, [picker, onClose]);
 
   useEffect(() => {
@@ -739,12 +756,16 @@ function Sidebar({ isOpen, onClose, onNewChat, sessions, setSessions, onSelectSe
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            const rect = e.currentTarget.getBoundingClientRect();
-                            setActiveColorPicker(activeColorPicker?.projectId === project.id ? null : {
-                              projectId: project.id,
-                              x: rect.left,
-                              y: rect.bottom,
-                              currentColor: project.colorName,
+                            e.preventDefault();
+                            setActiveColorPicker(prev => {
+                              if (prev?.projectId === project.id) return null;
+                              const rect = e.currentTarget.getBoundingClientRect();
+                              return {
+                                projectId: project.id,
+                                x: rect.left,
+                                y: rect.bottom,
+                                currentColor: project.colorName,
+                              };
                             });
                           }}
                           className={`w-3 h-3 rounded-full ${color.dot} border border-white/20 shrink-0`}
@@ -891,6 +912,23 @@ function Sidebar({ isOpen, onClose, onNewChat, sessions, setSessions, onSelectSe
             onRenameProject={handleMenuRenameProject}
             onAddSessions={handleMenuAddSessions}
             onDeleteProject={handleMenuDeleteProject}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* ── Fixed color picker — renders outside sidebar, escapes overflow:hidden ── */}
+      <AnimatePresence>
+        {activeColorPicker && (
+          <FixedColorPicker
+            picker={activeColorPicker}
+            onClose={() => setActiveColorPicker(null)}
+            onSelect={(colorName) => {
+              const project = projects.find(p => p.id === activeColorPicker.projectId);
+              if (!project) return;
+              const updated = { ...project, colorName };
+              setProjects(prev => prev.map(p => p.id === updated.id ? updated : p));
+              onSaveProject(updated);
+            }}
           />
         )}
       </AnimatePresence>

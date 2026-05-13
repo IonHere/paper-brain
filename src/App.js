@@ -130,6 +130,58 @@ function FixedMenu({ menu, onClose, onRenameSession, onDeleteSession, onRemoveFr
   );
 }
 
+// ── Fixed color picker (escapes overflow:hidden same as FixedMenu) ──
+function FixedColorPicker({ picker, onClose, onSelect }) {
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!picker) return;
+    const handle = (e) => { if (ref.current && !ref.current.contains(e.target)) onClose(); };
+    document.addEventListener("mousedown", handle);
+    return () => document.removeEventListener("mousedown", handle);
+  }, [picker, onClose]);
+
+  useEffect(() => {
+    if (!picker) return;
+    const handle = () => onClose();
+    window.addEventListener("scroll", handle, true);
+    return () => window.removeEventListener("scroll", handle, true);
+  }, [picker, onClose]);
+
+  if (!picker) return null;
+
+  const PALETTE_W = 128;
+  const PALETTE_H = 76;
+  const viewportW = window.innerWidth;
+  const viewportH = window.innerHeight;
+
+  let left = picker.x;
+  let top = picker.y + 8;
+
+  if (left + PALETTE_W > viewportW - 8) left = viewportW - PALETTE_W - 8;
+  if (top + PALETTE_H > viewportH - 8) top = picker.y - PALETTE_H - 4;
+
+  return (
+    <motion.div
+      ref={ref}
+      initial={{ opacity: 0, scale: 0.9 }}
+      animate={{ opacity: 1, scale: 1 }}
+      exit={{ opacity: 0, scale: 0.9 }}
+      transition={{ duration: 0.12 }}
+      style={{ position: "fixed", top, left, zIndex: 9999 }}
+      className="p-2 bg-[#111] border border-white/10 rounded-xl shadow-xl flex flex-wrap gap-1.5 w-32"
+    >
+      {PROJECT_COLORS.map(c => (
+        <button
+          key={c.name}
+          onClick={() => { onSelect(c.name); onClose(); }}
+          className={`w-5 h-5 rounded-full ${c.dot} border-2 ${picker.currentColor === c.name ? "border-white" : "border-transparent"} hover:border-white/50 transition-colors`}
+        />
+      ))}
+    </motion.div>
+  );
+}
+
 // ── Report Problem Modal ──
 function ReportModal({ isOpen, onClose, userEmail }) {
   const [message, setMessage] = useState("");
@@ -472,7 +524,7 @@ function Sidebar({ isOpen, onClose, onNewChat, sessions, setSessions, onSelectSe
   const [editLabel, setEditLabel] = useState("");
   const [editingProjectId, setEditingProjectId] = useState(null);
   const [editProjectLabel, setEditProjectLabel] = useState("");
-  const [showColorPicker, setShowColorPicker] = useState(null);
+  const [activeColorPicker, setActiveColorPicker] = useState(null); // { projectId, x, y, currentColor }
   const [addSessionsProject, setAddSessionsProject] = useState(null);
   const [deleteProjectTarget, setDeleteProjectTarget] = useState(null);
 
@@ -684,23 +736,19 @@ function Sidebar({ isOpen, onClose, onNewChat, sessions, setSessions, onSelectSe
                       </div>
                       <div className="flex items-center gap-1 shrink-0">
                         <span className="text-[10px] text-muted-foreground/50">{project.date}</span>
-                        <div className="relative">
-                          <button onClick={(e) => { e.stopPropagation(); setShowColorPicker(showColorPicker === project.id ? null : project.id); }}
-                            className={`w-3 h-3 rounded-full ${color.dot} border border-white/20 shrink-0`} />
-                          {showColorPicker === project.id && (
-                            <div className="absolute right-0 top-full mt-1 p-2 bg-[#111] border border-white/10 rounded-xl shadow-xl z-50 flex flex-wrap gap-1.5 w-28">
-                              {PROJECT_COLORS.map(c => (
-                                <button key={c.name} onClick={(e) => {
-                                  e.stopPropagation();
-                                  const updated = { ...project, colorName: c.name };
-                                  setProjects(prev => prev.map(p => p.id === project.id ? updated : p));
-                                  onSaveProject(updated);
-                                  setShowColorPicker(null);
-                                }} className={`w-5 h-5 rounded-full ${c.dot} border-2 ${project.colorName === c.name ? "border-white" : "border-transparent"} hover:border-white/50 transition-colors`} />
-                              ))}
-                            </div>
-                          )}
-                        </div>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            setActiveColorPicker(activeColorPicker?.projectId === project.id ? null : {
+                              projectId: project.id,
+                              x: rect.left,
+                              y: rect.bottom,
+                              currentColor: project.colorName,
+                            });
+                          }}
+                          className={`w-3 h-3 rounded-full ${color.dot} border border-white/20 shrink-0`}
+                        />
                         <ThreeDotProject project={project} />
                         <button onClick={() => setExpandedProject(expandedProject === project.id ? null : project.id)} className="text-muted-foreground">
                           {expandedProject === project.id ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}

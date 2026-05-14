@@ -971,7 +971,7 @@ function App() {
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showFullAuth, setShowFullAuth] = useState(false);
   const [authLoading, setAuthLoading] = useState(true);
-  const [displayName, setDisplayName] = useState("");
+  const [displayName, setDisplayName] = useState(() => localStorage.getItem("pb_display_name") || "");
 
   const [sourceText, setSourceText] = useState("");
   const [sourceInfo, setSourceInfo] = useState(null);
@@ -1037,6 +1037,8 @@ function App() {
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
+    localStorage.removeItem("pb_display_name");
+    setDisplayName("");
     setUser(null); setSessions([]); setProjects([]); clearResults();
   };
 
@@ -1276,7 +1278,7 @@ function App() {
 
       <AboutPanel isOpen={aboutOpen} onClose={() => setAboutOpen(false)} scrollToContact={aboutScrollToContact} />
       <ReportModal isOpen={reportOpen} onClose={() => setReportOpen(false)} userEmail={user?.email} />
-      <EditNameModal isOpen={editNameOpen} onClose={() => setEditNameOpen(false)} currentName={displayName} onSave={setDisplayName} />
+      <EditNameModal isOpen={editNameOpen} onClose={() => setEditNameOpen(false)} currentName={displayName} onSave={(name) => { setDisplayName(name); localStorage.setItem("pb_display_name", name); }} />
 
       <AnimatePresence>
         {showAuthModal && <Auth isModal={true} onClose={() => setShowAuthModal(false)} />}
@@ -1342,7 +1344,7 @@ function App() {
                 <p className="text-sm text-muted-foreground max-w-md mx-auto">Your private AI document assistant</p>
                 {user && (
                   <p className="text-xs text-indigo-400/70 mt-2">
-                    Welcome, {displayName || user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split("@")[0]}! 👋
+                    Welcome, {displayName || user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split("@")[0]}!
                   </p>
                 )}
               </motion.div>

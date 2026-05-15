@@ -971,7 +971,7 @@ function App() {
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showFullAuth, setShowFullAuth] = useState(false);
   const [authLoading, setAuthLoading] = useState(true);
-  const [displayName, setDisplayName] = useState(() => localStorage.getItem("pb_display_name") || "");
+  const [displayName, setDisplayName] = useState("");
 
   const [sourceText, setSourceText] = useState("");
   const [sourceInfo, setSourceInfo] = useState(null);
@@ -1035,9 +1035,18 @@ function App() {
 
   useEffect(() => { if (user) fetchHistory(); }, [user]);
 
+  // Load display name keyed to this specific user
+  useEffect(() => {
+    if (user) {
+      const saved = localStorage.getItem(`pb_display_name_${user.id}`);
+      setDisplayName(saved || "");
+    } else {
+      setDisplayName("");
+    }
+  }, [user]);
+
   const handleSignOut = async () => {
     await supabase.auth.signOut();
-    localStorage.removeItem("pb_display_name");
     setDisplayName("");
     setUser(null); setSessions([]); setProjects([]); clearResults();
   };
@@ -1278,7 +1287,7 @@ function App() {
 
       <AboutPanel isOpen={aboutOpen} onClose={() => setAboutOpen(false)} scrollToContact={aboutScrollToContact} />
       <ReportModal isOpen={reportOpen} onClose={() => setReportOpen(false)} userEmail={user?.email} />
-      <EditNameModal isOpen={editNameOpen} onClose={() => setEditNameOpen(false)} currentName={displayName} onSave={(name) => { setDisplayName(name); localStorage.setItem("pb_display_name", name); }} />
+      <EditNameModal isOpen={editNameOpen} onClose={() => setEditNameOpen(false)} currentName={displayName} onSave={(name) => { setDisplayName(name); if (user) localStorage.setItem(`pb_display_name_${user.id}`, name); }} />
 
       <AnimatePresence>
         {showAuthModal && <Auth isModal={true} onClose={() => setShowAuthModal(false)} />}

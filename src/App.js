@@ -990,6 +990,7 @@ function App() {
   const [aboutScrollToContact, setAboutScrollToContact] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
   const [editNameOpen, setEditNameOpen] = useState(false);
+  const [expandedImage, setExpandedImage] = useState(null); // { data, page }
 
   const bottomRef = useRef(null);
   const topRef = useRef(null);
@@ -1154,6 +1155,7 @@ function App() {
   const clearResults = () => {
     setResults([]); setHasStarted(false); setSourceText("");
     setSourceInfo(null); setMultiSources([]); setCurrentSessionId(null);
+    setExpandedImage(null);
   };
 
   const handleDeleteSession = async (sessionId) => {
@@ -1388,12 +1390,63 @@ function App() {
               </div>
             </motion.header>
 
-            <div ref={chatRef} onScroll={handleScroll} className="overflow-y-auto px-4 sm:px-6 py-6 pb-64 absolute inset-0 top-[52px] bottom-0">
-              <div ref={topRef} />
-              <div className="max-w-5xl mx-auto space-y-4">
-                <ResultDisplay results={results} onClear={clearResults} sourceText={sourceText} multiSources={multiSources} onRegenerate={handleRegenerate} onDelete={handleDeleteResult} />
-                <div ref={bottomRef} />
-              </div>
+            {/* ── Main area: chat + image panel side by side ── */}
+            <div className="flex absolute inset-0 top-[52px] bottom-0">
+
+              {/* Chat column — shrinks when image panel is open */}
+              <motion.div
+                ref={chatRef}
+                onScroll={handleScroll}
+                className="flex-1 overflow-y-auto px-4 sm:px-6 py-6 pb-64 min-w-0"
+                animate={{ marginRight: expandedImage ? 0 : 0 }}
+                transition={{ type: "spring", damping: 30, stiffness: 250 }}
+              >
+                <div ref={topRef} />
+                <div className="max-w-5xl mx-auto space-y-4">
+                  <ResultDisplay
+                    results={results} onClear={clearResults}
+                    sourceText={sourceText} multiSources={multiSources}
+                    onRegenerate={handleRegenerate} onDelete={handleDeleteResult}
+                    onExpand={(image) => setExpandedImage(image)}
+                  />
+                  <div ref={bottomRef} />
+                </div>
+              </motion.div>
+
+              {/* Image panel — slides in from the right */}
+              <AnimatePresence>
+                {expandedImage && (
+                  <motion.div
+                    initial={{ width: 0, opacity: 0 }}
+                    animate={{ width: "45%", opacity: 1 }}
+                    exit={{ width: 0, opacity: 0 }}
+                    transition={{ type: "spring", damping: 30, stiffness: 250 }}
+                    className="shrink-0 border-l border-white/10 bg-[#080808] flex flex-col overflow-hidden"
+                  >
+                    {/* Panel header */}
+                    <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 shrink-0">
+                      <span className="text-xs text-muted-foreground font-medium">
+                        {expandedImage.page ? `Page ${expandedImage.page}` : "Image"}
+                      </span>
+                      <button
+                        onClick={() => setExpandedImage(null)}
+                        className="p-1.5 rounded-lg hover:bg-white/10 text-muted-foreground hover:text-foreground transition-colors"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    {/* Image — fills remaining space, centered */}
+                    <div className="flex-1 flex items-center justify-center p-4 overflow-auto">
+                      <img
+                        src={`data:image/png;base64,${expandedImage.data || expandedImage.b64}`}
+                        alt={`Page ${expandedImage.page} diagram`}
+                        className="max-w-full max-h-full object-contain rounded-lg"
+                      />
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
 
             <div className="fixed bottom-0 left-0 right-0 z-20 bg-gradient-to-t from-[#050505] via-[#050505]/90 to-transparent pt-8 pb-6 px-4">

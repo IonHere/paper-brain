@@ -59,27 +59,16 @@ function MarkdownContent({ content }) {
 }
 
 // ── Inline image component ──
-function InlineImage({ image }) {
+function InlineImage({ image, onExpand }) {
   if (!image) return null;
-
-  // Support both {data, page} (from sections) and {data, page} (from analyzed_images)
   const base64 = image.data || image.b64;
   if (!base64) return null;
-
-  const handleExpand = () => {
-    const win = window.open("", "_blank");
-    win.document.write(
-      `<html><body style="margin:0;background:#000;display:flex;align-items:center;justify-content:center;min-height:100vh">` +
-      `<img src="data:image/png;base64,${base64}" style="max-width:100%;max-height:100vh;object-fit:contain"/>` +
-      `</body></html>`
-    );
-  };
 
   return (
     <div className="my-3">
       <div
         className="relative group/img rounded-lg overflow-hidden border border-white/10 bg-white/3 cursor-pointer inline-block max-w-sm"
-        onClick={handleExpand}
+        onClick={() => onExpand && onExpand(image)}
       >
         <img
           src={`data:image/png;base64,${base64}`}
@@ -99,15 +88,15 @@ function InlineImage({ image }) {
   );
 }
 
-// ── Images gallery (for unmatched or fallback images) ──
-function ImagesGallery({ images, label = "Images from document" }) {
+// ── Images gallery ──
+function ImagesGallery({ images, label = "Images from document", onExpand }) {
   if (!images || images.length === 0) return null;
   return (
     <div className="mt-3 space-y-2">
       <p className="text-[10px] text-muted-foreground/50 uppercase tracking-wide">{label}</p>
       <div className="flex flex-wrap gap-3">
         {images.map((img, i) => (
-          <InlineImage key={i} image={img} />
+          <InlineImage key={i} image={img} onExpand={onExpand} />
         ))}
       </div>
     </div>
@@ -115,15 +104,10 @@ function ImagesGallery({ images, label = "Images from document" }) {
 }
 
 // ── Interleaved sections renderer ──
-function SectionedContent({ sections, fallbackText, analyzedImages }) {
+function SectionedContent({ sections, fallbackText, analyzedImages, onExpand }) {
   if (sections && sections.length > 0) {
-    // Track which image pages were already used inline
-    const usedPages = new Set(
-      sections.filter(s => s.image).map(s => s.image.page)
-    );
-    const unusedImages = (analyzedImages || []).filter(
-      img => !usedPages.has(img.page)
-    );
+    const usedPages = new Set(sections.filter(s => s.image).map(s => s.image.page));
+    const unusedImages = (analyzedImages || []).filter(img => !usedPages.has(img.page));
 
     return (
       <div className="space-y-4">
@@ -133,26 +117,24 @@ function SectionedContent({ sections, fallbackText, analyzedImages }) {
               <h2 className="text-sm font-bold text-foreground mt-3 mb-1">{section.heading}</h2>
             )}
             <MarkdownContent content={section.text} />
-            {section.image && <InlineImage image={section.image} />}
+            {section.image && <InlineImage image={section.image} onExpand={onExpand} />}
             {i < sections.length - 1 && section.heading && (
               <hr className="border-white/5 mt-3" />
             )}
           </div>
         ))}
-        {/* Render any images that weren't matched to a section */}
         {unusedImages.length > 0 && (
-          <ImagesGallery images={unusedImages} label="Additional images" />
+          <ImagesGallery images={unusedImages} label="Additional images" onExpand={onExpand} />
         )}
       </div>
     );
   }
 
-  // Fallback — plain markdown + all images shown below
   return (
     <div>
       <MarkdownContent content={parseResult(fallbackText)} />
       {analyzedImages && analyzedImages.length > 0 && (
-        <ImagesGallery images={analyzedImages} />
+        <ImagesGallery images={analyzedImages} onExpand={onExpand} />
       )}
     </div>
   );
@@ -297,7 +279,7 @@ function FeedbackBar({ result, sourceText, multiSources, onRegenerate }) {
 }
 
 // ── Result card ──
-function ResultCard({ result, index, sourceText, multiSources, onRegenerate, onDelete }) {
+function ResultCard({ result, index, sourceText, multiSources, onRegenerate, onDelete, onExpand }) {
   const config = MODE_CONFIG[result.mode] || MODE_CONFIG.summarize;
   const Icon = result.error ? AlertCircle : result.is_combined ? GitMerge : config.icon;
   const isError = result.error;
@@ -333,7 +315,6 @@ function ResultCard({ result, index, sourceText, multiSources, onRegenerate, onD
                 {result.filename}
               </span>
             )}
-            {/* Image count badge */}
             {result.analyzed_images && result.analyzed_images.length > 0 && (
               <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/10">
                 {result.analyzed_images.length} image{result.analyzed_images.length !== 1 ? "s" : ""}
@@ -365,11 +346,11 @@ function ResultCard({ result, index, sourceText, multiSources, onRegenerate, onD
             </div>
           )}
 
-          {/* Interleaved sections (text + image per section) + fallback images */}
           <SectionedContent
             sections={result.sections}
             fallbackText={result.result}
             analyzedImages={result.analyzed_images}
+            onExpand={onExpand}
           />
 
           {!isError && (
@@ -386,7 +367,7 @@ function ResultCard({ result, index, sourceText, multiSources, onRegenerate, onD
   );
 }
 
-export default function ResultDisplay({ results, onClear, sourceText, multiSources, onRegenerate, onDelete }) {
+export default function ResultDisplay({ results, onClear, sourceText, multiSources, onRegenerate, onDelete, onExpand }) {
   if (results.length === 0) return null;
   return (
     <div className="w-full" data-testid="result-display">
@@ -402,6 +383,7 @@ export default function ResultDisplay({ results, onClear, sourceText, multiSourc
             <ResultCard key={r.id} result={r} index={i}
               sourceText={sourceText} multiSources={multiSources}
               onRegenerate={onRegenerate} onDelete={onDelete}
+              onExpand={onExpand}
             />
           ))}
         </div>

@@ -139,7 +139,7 @@ GROQ_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2
 # ─────────────────────────────────────────────
 # SUPPORT MODEL — Gemini Vision for images
 # ─────────────────────────────────────────────
-GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
+GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY_2', os.environ.get('GEMINI_API_KEY', ''))
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
 
 app = FastAPI()
@@ -208,7 +208,7 @@ async def call_text_model(prompt: str, retries: int = 3) -> str:
                     data = response.json()
                     return data["candidates"][0]["content"]["parts"][0]["text"]
                 elif response.status_code == 429:
-                    wait_time = (attempt + 1) * 15
+                    wait_time = (attempt + 1) * 20
                     await asyncio.sleep(wait_time)
                     continue
                 raise HTTPException(status_code=502, detail=f"API error: {response.status_code}")
@@ -601,7 +601,7 @@ async def process_text(request: ProcessRequest, user_id: Optional[str] = Header(
 
     analyzed_images = []
     if request.images:
-        for img in request.images[:8]:
+        for img in request.images[:3]:
             try:
                 result = await analyze_image_with_vision_model(img["data"], img.get("page", 0))
                 if result and result.get("description"):
@@ -721,7 +721,7 @@ async def regenerate_response(
 
     analyzed_images = []
     if request.images:
-        for img in request.images[:8]:
+        for img in request.images[:3]:
             try:
                 result = await analyze_image_with_vision_model(img["data"], img.get("page", 0))
                 if result and result.get("description"):

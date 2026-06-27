@@ -132,15 +132,15 @@ async def sb_upsert(table, data, on_conflict):
 # ─────────────────────────────────────────────
 # MAIN MODEL — HF LLaMA 3.1 8B for text
 # ─────────────────────────────────────────────
-GROQ_API_KEY = os.environ.get('HF_TOKEN', '')
-GROQ_MODEL = "meta-llama/Meta-Llama-3.1-8B-Instruct"
-GROQ_API_URL = "https://api-inference.huggingface.co/models/meta-llama/Meta-Llama-3.1-8B-Instruct/v1/chat/completions"
+GROQ_API_KEY = os.environ.get('GEMINI_API_KEY', '')
+GROQ_MODEL = "gemini-2.0-flash"
+GROQ_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
 
 # ─────────────────────────────────────────────
 # SUPPORT MODEL — Gemini Vision for images
 # ─────────────────────────────────────────────
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
-GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
+GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
 
 app = FastAPI()
 api_router = APIRouter(prefix="/api")
@@ -193,33 +193,28 @@ class ProjectRequest(BaseModel):
 # ─────────────────────────────────────────────
 async def call_text_model(prompt: str, retries: int = 3) -> str:
     import asyncio
-    headers = {
-        "Authorization": f"Bearer {GROQ_API_KEY}",
-        "Content-Type": "application/json"
-    }
     payload = {
-        "model": GROQ_MODEL,
-        "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": 2048,
-        "temperature": 0.7
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {"maxOutputTokens": 2048, "temperature": 0.7}
     }
     for attempt in range(retries):
         async with httpx.AsyncClient(timeout=60.0) as client:
             try:
-                response = await client.post(GROQ_API_URL, headers=headers, json=payload)
+                response = await client.post(
+                    f"{GROQ_API_URL}?key={GROQ_API_KEY}",
+                    json=payload
+                )
                 if response.status_code == 200:
                     data = response.json()
-                    return data["choices"][0]["message"]["content"]
+                    return data["candidates"][0]["content"]["parts"][0]["text"]
                 elif response.status_code == 429:
                     wait_time = (attempt + 1) * 15
-                    logging.warning(f"Groq rate limit hit, retrying in {wait_time}s...")
                     await asyncio.sleep(wait_time)
                     continue
-                raise HTTPException(status_code=502, detail=f"Groq API error: {response.status_code}")
+                raise HTTPException(status_code=502, detail=f"API error: {response.status_code}")
             except httpx.TimeoutException:
                 raise HTTPException(status_code=504, detail="Text model timed out")
     raise HTTPException(status_code=429, detail="Rate limit exceeded. Please wait a moment and try again.")
-
 # ─────────────────────────────────────────────
 # SUPPORT MODEL — Gemini Vision
 # ─────────────────────────────────────────────

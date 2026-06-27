@@ -130,11 +130,11 @@ async def sb_upsert(table, data, on_conflict):
         return r.json()
 
 # ─────────────────────────────────────────────
-# MAIN MODEL — Groq (Mistral/LLaMA) for text
+# MAIN MODEL — HF LLaMA 3.1 8B for text
 # ─────────────────────────────────────────────
-GROQ_API_KEY = os.environ.get('GROQ_API_KEY', '')
-GROQ_MODEL = os.environ.get('HF_TEXT_MODEL', 'llama-3.1-8b-instant')
-GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
+GROQ_API_KEY = os.environ.get('HF_TOKEN', '')
+GROQ_MODEL = "meta-llama/Meta-Llama-3.1-8B-Instruct"
+GROQ_API_URL = "https://api-inference.huggingface.co/models/meta-llama/Meta-Llama-3.1-8B-Instruct/v1/chat/completions"
 
 # ─────────────────────────────────────────────
 # SUPPORT MODEL — Gemini Vision for images

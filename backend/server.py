@@ -134,7 +134,7 @@ async def sb_upsert(table, data, on_conflict):
 # ─────────────────────────────────────────────
 GROQ_API_KEY = os.environ.get('GEMINI_API_KEY', '')
 GROQ_MODEL = "gemini-2.0-flash"
-GROQ_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-8b:generateContent"
+GROQ_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
 
 # ─────────────────────────────────────────────
 # SUPPORT MODEL — Gemini Vision for images

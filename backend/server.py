@@ -190,6 +190,12 @@ class ProjectRequest(BaseModel):
 # ─────────────────────────────────────────────
 # MAIN MODEL — Groq text generation
 # ─────────────────────────────────────────────
+def strip_thinking(text: str) -> str:
+    text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
+    text = re.sub(r'</think>', '', text)
+    return text.strip()
+
+
 async def call_text_model(prompt: str, retries: int = 3) -> str:
     import asyncio
     payload = {
@@ -212,7 +218,7 @@ async def call_text_model(prompt: str, retries: int = 3) -> str:
                 )
                 if response.status_code == 200:
                     data = response.json()
-                    return data["choices"][0]["message"]["content"]
+                    return strip_thinking(data["choices"][0]["message"]["content"])
                 elif response.status_code == 429:
                     wait_time = (attempt + 1) * 20
                     await asyncio.sleep(wait_time)

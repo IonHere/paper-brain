@@ -287,7 +287,8 @@ async def extract_handwritten_text(image_base64: str) -> str:
 VISUAL_INTENT_WORDS = {
     "diagram", "figure", "chart", "graph", "image", "picture", "illustration",
     "table", "schematic", "drawing", "show", "depicted", "shown", "visual",
-    "architecture", "block", "circuit", "plot", "map", "layout"
+    "architecture", "block", "circuit", "plot", "map", "layout",
+    "draw", "sketch", "flowchart", "structure", "model", "representation"
 }
 
 def query_requests_visual(query: str) -> bool:
@@ -350,8 +351,8 @@ def find_best_image_for_section(section_text: str, analyzed_images: list, used_i
         overlap = len(section_keywords & desc_keywords)
         score = overlap / max(len(section_keywords), 1)
 
-        min_overlap = 3 if visual_query else 5
-        min_score = 0.12 if visual_query else 0.20
+        min_overlap = 2 if visual_query else 5
+        min_score = 0.08 if visual_query else 0.20
 
         if overlap >= min_overlap and score > min_score and score > best_score:
             best_score = score
@@ -624,7 +625,7 @@ async def process_text(request: ProcessRequest, user_id: Optional[str] = Header(
 
     analyzed_images = []
     if request.images:
-        for img in request.images[:3]:
+        for img in request.images[:6]:
             try:
                 result = await analyze_image_with_vision_model(img["data"], img.get("page", 0))
                 if result and result.get("description"):

@@ -132,10 +132,9 @@ async def sb_upsert(table, data, on_conflict):
 # ─────────────────────────────────────────────
 # MAIN MODEL — HF LLaMA 3.1 8B for text
 # ─────────────────────────────────────────────
-GROQ_API_KEY = os.environ.get('GEMINI_API_KEY', '')
-GROQ_MODEL = "gemini-2.0-flash"
-GROQ_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
-
+GROQ_API_KEY = os.environ.get('GROQ_API_KEY', '')
+GROQ_MODEL = "qwen/qwen3.6-27b"
+GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 # ─────────────────────────────────────────────
 # SUPPORT MODEL — Gemini Vision for images
 # ─────────────────────────────────────────────
@@ -194,19 +193,26 @@ class ProjectRequest(BaseModel):
 async def call_text_model(prompt: str, retries: int = 3) -> str:
     import asyncio
     payload = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"maxOutputTokens": 2048, "temperature": 0.7}
+        "model": GROQ_MODEL,
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": 2048,
+        "temperature": 0.7
+    }
+    headers = {
+        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Content-Type": "application/json"
     }
     for attempt in range(retries):
         async with httpx.AsyncClient(timeout=60.0) as client:
             try:
                 response = await client.post(
-                    f"{GROQ_API_URL}?key={GROQ_API_KEY}",
-                    json=payload
+                    GROQ_API_URL,
+                    json=payload,
+                    headers=headers
                 )
                 if response.status_code == 200:
                     data = response.json()
-                    return data["candidates"][0]["content"]["parts"][0]["text"]
+                    return data["choices"][0]["message"]["content"]
                 elif response.status_code == 429:
                     wait_time = (attempt + 1) * 20
                     await asyncio.sleep(wait_time)
@@ -423,33 +429,33 @@ def build_prompt(mode, text, filename="", query=None, question=None, answer=None
             image_context += f"Image {i+1}: {desc[:200]}\n"
 
     if mode == "summarize":
-        return f"""[INST] Summarize the following text using clear ## headings for each major topic, with bullet points under each heading. Cover ALL key topics thoroughly.{history_context}{image_context}
+        return f"""Summarize the following text using clear ## headings for each major topic, with bullet points under each heading. Cover ALL key topics thoroughly.{history_context}{image_context}
 
 Text{label}:
 {truncated}
 
-Detailed Summary: [/INST]"""
+Detailed Summary:"""
 
     elif mode == "question":
-        return f"""[INST] Generate exactly {num_questions} questions based on this text. Output ONLY a numbered list. Each question on its own line.{history_context}{image_context}
+        return f"""Generate exactly {num_questions} questions based on this text. Output ONLY a numbered list. Each question on its own line.{history_context}{image_context}
 
 Text{label}:
 {truncated}
 
-Questions: [/INST]"""
+Questions:"""
 
     elif mode == "answer":
-        return f"""[INST] Answer the following question in detail. If the question covers multiple topics, use ## headings for each sub-topic. Use bullet points where appropriate. Base your answer ONLY on the provided text.{history_context}{image_context}
+        return f"""Answer the following question in detail. If the question covers multiple topics, use ## headings for each sub-topic. Use bullet points where appropriate. Base your answer ONLY on the provided text.{history_context}{image_context}
 
 Text{label}:
 {truncated}
 
 Question: {query}
 
-Detailed Answer: [/INST]"""
+Detailed Answer:"""
 
     elif mode == "evaluate":
-        return f"""[INST] Evaluate this answer using these ## headings exactly: ## Score, ## Correct Points, ## Missing Points, ## How to Improve. Be specific and detailed under each heading.{history_context}{image_context}
+        return f"""Evaluate this answer using these ## headings exactly: ## Score, ## Correct Points, ## Missing Points, ## How to Improve. Be specific and detailed under each heading.{history_context}{image_context}
 
 Text{label}:
 {truncated[:2000]}
@@ -457,17 +463,17 @@ Text{label}:
 Question: {question}
 Answer: {answer}
 
-Evaluation: [/INST]"""
+Evaluation:"""
 
     else:
-        return f"""[INST] Answer this question in detail. If covering multiple topics, use ## headings for each sub-topic.{history_context}{image_context}
+        return f"""Answer this question in detail. If covering multiple topics, use ## headings for each sub-topic.{history_context}{image_context}
 
 Text{label}:
 {truncated}
 
 Question: {query}
 
-Detailed Answer: [/INST]"""
+Detailed Answer:"""
 
 def are_texts_related(texts):
     if len(texts) < 2:
@@ -737,14 +743,13 @@ async def regenerate_response(
     if request.feedback_comment:
         feedback_instruction = f"\nUser feedback: {sanitize_input(request.feedback_comment)}\nFollow this strictly.\n"
 
-    prompt = f"""[INST] {feedback_instruction}
-Improve this response based on feedback. Use ## headings for sections. Do NOT change factual content.
+    prompt = f"""{feedback_instruction}Improve this response based on feedback. Use ## headings for sections. Do NOT change factual content.
 
 Text: {truncated}
 Original response: {request.previous_response}
 Question: {query}
 
-Improved response: [/INST]"""
+Improved response:"""
 
     result_text = await call_text_model(prompt)
     sections = build_sections_with_images(result_text, analyzed_images, mode, query or "")

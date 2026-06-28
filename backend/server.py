@@ -192,6 +192,7 @@ class ProjectRequest(BaseModel):
 # ─────────────────────────────────────────────
 def strip_thinking(text: str) -> str:
     text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
+    text = re.sub(r'<think>.*', '', text, flags=re.DOTALL)
     text = re.sub(r'</think>', '', text)
     return text.strip()
 
@@ -202,7 +203,8 @@ async def call_text_model(prompt: str, retries: int = 3) -> str:
         "model": GROQ_MODEL,
         "messages": [{"role": "user", "content": prompt}],
         "max_tokens": 2048,
-        "temperature": 0.7
+        "temperature": 0.7,
+        "reasoning_effort": "none"
     }
     headers = {
         "Authorization": f"Bearer {GROQ_API_KEY}",

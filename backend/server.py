@@ -445,6 +445,15 @@ Text{label}:
 Detailed Summary:"""
 
     elif mode == "question":
+        if query:
+            return f"""Based on the following text, fulfill this request exactly: {query}
+
+Use proper structure, headings, and numbering as requested. Base all questions strictly on the provided text.{history_context}{image_context}
+
+Text{label}:
+{truncated}
+
+Response:"""
         return f"""Generate exactly {num_questions} questions based on this text. Output ONLY a numbered list. Each question on its own line.{history_context}{image_context}
 
 Text{label}:

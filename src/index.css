@@ -101,24 +101,18 @@
   }
 }
 
-/* Scrollbar */
 ::-webkit-scrollbar {
-  width: 12px;
+  width: 14px;
 }
 ::-webkit-scrollbar-track {
   background: hsl(var(--background));
 }
 ::-webkit-scrollbar-thumb {
   background: hsl(var(--muted-foreground));
-  border-radius: 6px;
+  border-radius: 7px;
   border: 3px solid hsl(var(--background));
+  min-height: 40px;
 }
 ::-webkit-scrollbar-thumb:hover {
   background: hsl(var(--foreground));
-}
-
-/* Firefox */
-* {
-  scrollbar-width: auto;
-  scrollbar-color: hsl(var(--muted-foreground)) hsl(var(--background));
 }

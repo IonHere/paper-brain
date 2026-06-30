@@ -1323,7 +1323,7 @@ function App() {
             {showScrollTop && (
               <motion.button initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.8 }}
                 onClick={() => chatRef.current?.scrollTo({ top: 0, behavior: "smooth" })}
-                className="fixed right-6 bottom-52 z-30 w-8 h-8 rounded-full bg-indigo-600/20 hover:bg-indigo-600/40 border border-indigo-500/20 flex items-center justify-center text-indigo-400 transition-colors">
+                className="fixed right-12 bottom-52 z-30 w-8 h-8 rounded-full bg-indigo-600/20 hover:bg-indigo-600/40 border border-indigo-500/20 flex items-center justify-center text-indigo-400 transition-colors">
                 <ArrowUp className="w-3.5 h-3.5" />
               </motion.button>
             )}
@@ -1332,7 +1332,7 @@ function App() {
             {showScrollBottom && (
               <motion.button initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.8 }}
                 onClick={() => bottomRef.current?.scrollIntoView({ behavior: "smooth" })}
-                className="fixed right-6 bottom-40 z-30 w-8 h-8 rounded-full bg-indigo-600/20 hover:bg-indigo-600/40 border border-indigo-500/20 flex items-center justify-center text-indigo-400 transition-colors">
+                className="fixed right-12 bottom-40 z-30 w-8 h-8 rounded-full bg-indigo-600/20 hover:bg-indigo-600/40 border border-indigo-500/20 flex items-center justify-center text-indigo-400 transition-colors">
                 <ArrowDown className="w-3.5 h-3.5" />
               </motion.button>
             )}
